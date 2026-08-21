@@ -1,6 +1,8 @@
 # Site vhost for {{ server_name }}.
 # certbot --apache adds the SSLEngine/SSLCertificateFile directives (and an
-# HTTP->HTTPS redirect vhost) in place once a certificate is issued.
+# HTTP->HTTPS redirect vhost) in place once a certificate is issued; it copies
+# this vhost's directives into the -le-ssl vhost, so RewriteEngine/CustomLog
+# below carry over to the HTTPS side.
 <VirtualHost *:80>
     ServerName {{ server_name }}
 {% if include_www | bool %}
@@ -8,6 +10,12 @@
 {% endif %}
 
     DocumentRoot /var/www/vhosts/staging/public
+
+    # Required for the server-level deny rules in wordpress-protection.conf:
+    # that file sets RewriteOptions InheritDownBefore, but engine state is
+    # never inherited — without this line NONE of those rules run for vhost
+    # traffic and /.env, wp-config backups, SQL dumps, etc. get served.
+    RewriteEngine On
 
     <Directory /var/www/vhosts/staging/public/>
         Options -Indexes +FollowSymLinks
@@ -19,7 +27,10 @@
         SetHandler "proxy:unix:/run/php/php8.3-fpm-pmpro.sock|fcgi://localhost/"
     </FilesMatch>
 
-    # Add vhost name to log entries.
-    LogFormat "%h %l %u %t \"%r\" %>s %b \"%{Referer}i\" \"%{User-agent}i\"" vhost_combined
-    LogFormat "%v %h %l %u %t \"%r\" %>s %b" vhost_common
+    # Log in combined format to the file the fail2ban jails watch. Without a
+    # vhost-level CustomLog, traffic falls through to other_vhosts_access.log
+    # in vhost_combined format ("%v:%p %h ..."), whose leading vhost:port
+    # prefix no ^<HOST>-anchored fail2ban filter can match — every jail would
+    # be blind to real site traffic.
+    CustomLog ${APACHE_LOG_DIR}/access.log combined
 </VirtualHost>

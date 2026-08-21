@@ -33,6 +33,17 @@
   args:
     creates: "/etc/apache2/conf-enabled/php8.3-fpm.conf"
 
+# Ubuntu's stock 000-default vhost has no RewriteEngine, so it would serve
+# bare-IP / wrong-Host traffic with none of the inherited deny rules (and log
+# it separately). With it gone, that traffic lands on the site vhost, which
+# carries the protections; with no vhost at all (ssl role not run) the main
+# server serves and the server-context rules apply directly.
+- name: Disable Ubuntu default vhost
+  ansible.builtin.command: a2dissite 000-default
+  args:
+    removes: /etc/apache2/sites-enabled/000-default.conf
+  notify: Reload Apache
+
 # - name: Set up Apache2 configuration file
 #   ansible.builtin.copy:
 #     src: apache2.conf

@@ -101,6 +101,18 @@ class PMPro_Stack_PDF_Preview {
 	const MAX_CHUNKS_PER_DRAIN = 256;
 
 	/**
+	 * Address-space cap for the poppler children, in bytes (1 GiB). PHP's
+	 * memory_limit does not apply to child processes, and a malformed PDF
+	 * can balloon pdfinfo/pdftoppm long before the wall-clock timeout
+	 * fires; prlimit turns that into a clean child failure instead of
+	 * host memory pressure. Generous relative to a legitimate worst case
+	 * (a MAX_EDGE_PX render needs well under 200 MB).
+	 *
+	 * @var int
+	 */
+	const AS_LIMIT_BYTES = 1073741824;
+
+	/**
 	 * Get the singleton instance.
 	 *
 	 * @return PMPro_Stack_PDF_Preview
@@ -344,6 +356,21 @@ class PMPro_Stack_PDF_Preview {
 			'stdout'   => '',
 			'stderr'   => '',
 		);
+
+		// Cap the child's address space and CPU when prlimit is available
+		// (util-linux, present on the stack); prlimit exec()s the target, so
+		// exit codes and pipes pass through unchanged.
+		if ( is_executable( '/usr/bin/prlimit' ) ) {
+			$command = array_merge(
+				array(
+					'/usr/bin/prlimit',
+					'--as=' . self::AS_LIMIT_BYTES,
+					'--cpu=' . (int) $timeout,
+					'--',
+				),
+				$command
+			);
+		}
 
 		$pipes   = array();
 		$process = proc_open( // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.system_calls_proc_open
