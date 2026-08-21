@@ -1,0 +1,49 @@
+---
+# Security-only unattended upgrades.
+#
+# Policy (see files/52unattended-upgrades-pmpro for the design rationale):
+# security pocket only, mysql-server blacklisted (patch MySQL in a
+# maintenance window), no automatic reboot.
+
+- name: Install unattended-upgrades
+  ansible.builtin.apt:
+    name:
+      - unattended-upgrades
+      - update-notifier-common
+    state: present
+  tags: apt-security
+
+- name: Deploy APT periodic config
+  ansible.builtin.copy:
+    src: 20auto-upgrades
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    owner: root
+    group: root
+    mode: "0644"
+  tags: apt-security
+
+- name: Deploy unattended-upgrades policy (security-only)
+  ansible.builtin.copy:
+    src: 52unattended-upgrades-pmpro
+    dest: /etc/apt/apt.conf.d/52unattended-upgrades-pmpro
+    owner: root
+    group: root
+    mode: "0644"
+  tags: apt-security
+
+- name: Verify APT config parses with the new policy
+  ansible.builtin.command: apt-config dump
+  changed_when: false
+  tags: apt-security
+
+# The playbook pauses these timers before any package tasks and starts them in
+# post_tasks, after every role has finished. This role only ensures they remain
+# enabled across reboots.
+- name: Enable APT daily timers at boot
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: true
+  loop:
+    - apt-daily.timer
+    - apt-daily-upgrade.timer
+  tags: apt-security

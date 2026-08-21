@@ -34,11 +34,35 @@
       - php8.3-gmp
       - php-pear
       - php8.3-apcu
-      - libmagickcore-6.q16-7-extra
+      - poppler-utils
     state: present
     cache_valid_time: 3600
   register: package_install
   tags: php, php_extensions, php_modules, php_release
+
+# libmagickcore-6.q16-7-extra only adds djvu/dot/exr/pango/svg/wmf coders,
+# which WordPress never uses and which the hardened policy below denies.
+# Keep it off the box.
+- name: Remove ImageMagick extra coders package
+  ansible.builtin.apt:
+    name: libmagickcore-6.q16-7-extra
+    state: absent
+  tags: php, imagemagick
+
+# Hardened ImageMagick security policy. Denies all delegates (Ghostscript),
+# script-style coders (MSL/MVG/SVG/PS/PDF), and indirect path reads; allows
+# only the raster formats WordPress needs. This reduces exposure when packaged
+# ImageMagick releases lag upstream fixes. PDF previews rasterize via poppler
+# (pdftoppm) instead of Imagick+Ghostscript.
+- name: Install hardened ImageMagick policy
+  ansible.builtin.copy:
+    src: policy.xml
+    dest: /etc/ImageMagick-6/policy.xml
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart PHP-FPM
+  tags: php, imagemagick
 
 - name: Create PHP Log Directory
   ansible.builtin.file:
@@ -58,11 +82,15 @@
     mode: "0640"
 
 # Pool config is written to /etc/php/www.conf and symlinked into the FPM pool.d dir.
+# 0640 root:root: the pool can carry env secrets, so it must not be world-readable.
+# The FPM master reads pool.d as root at start/reload; workers never re-read it.
 - name: Setup PHP Pool
   ansible.builtin.template:
     src: "www.conf.j2"
     dest: "/etc/php/www.conf"
-    mode: u=rw,g=r,o=r
+    owner: root
+    group: root
+    mode: '0640'
   notify: Restart PHP-FPM
   tags: php, php_configs, php_pools, configs
 
@@ -87,6 +115,19 @@
   ansible.builtin.template:
     src: opcache.ini.j2
     dest: /etc/php/8.3/mods-available/opcache.ini
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart PHP-FPM
+
+# FPM-only execution-time default (max_execution_time / max_input_time = 60),
+# an overridable default rather than a hard cap. Dropped straight into
+# fpm/conf.d (not mods-available) so the CLI SAPI stays uncapped for long
+# wp-cli jobs. Inherited by every FPM pool.
+- name: Deploy FPM execution-limit drop-in
+  ansible.builtin.copy:
+    src: zz-pmpro-limits.ini
+    dest: /etc/php/8.3/fpm/conf.d/zz-pmpro-limits.ini
     owner: root
     group: root
     mode: '0644'

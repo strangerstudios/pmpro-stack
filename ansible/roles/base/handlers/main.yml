@@ -5,3 +5,8 @@
   ansible.builtin.service:
     name: redis-server
     state: restarted
+
+- name: Restart systemd-journald
+  ansible.builtin.systemd:
+    name: systemd-journald
+    state: restarted

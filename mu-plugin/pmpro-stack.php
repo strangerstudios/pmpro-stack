@@ -2,7 +2,7 @@
 /**
  * Plugin Name: PMPro Stack
  * Description: Caching + performance for WordPress + Paid Memberships Pro.
- * Version: 1.0.0
+ * Version: 1.1.0
  * License: GPL-2.0+
  *
  * @package PMPro_Stack

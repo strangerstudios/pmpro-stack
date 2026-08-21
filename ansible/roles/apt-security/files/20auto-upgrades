@@ -1,0 +1,5 @@
+// pmpro-stack APT periodic config. Enables the daily unattended-upgrades
+// run (scoped to the security pocket by 52unattended-upgrades-pmpro).
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Unattended-Upgrade "1";
+APT::Periodic::AutocleanInterval "7";

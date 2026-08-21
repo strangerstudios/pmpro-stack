@@ -6,10 +6,13 @@
 # certbot + python3-certbot-apache are installed here so the ssl role can
 # issue Let's Encrypt certificates.
 
+# Always refresh the apt index (no cache_valid_time): a fresh droplet/image
+# ships a pre-baked apt cache whose package versions security.ubuntu.com may
+# already have superseded and dropped from the pool, which 404s the install
+# below. Force a current index every run rather than trust the cache age.
 - name: Refresh apt package metadata
   ansible.builtin.apt:
     update_cache: true
-    cache_valid_time: 3600
 
 - name: Installing required software.
   ansible.builtin.apt:
@@ -47,6 +50,25 @@
       maxmemory-policy allkeys-lru
   notify: Restart redis-server
 
+# Cap journald retention: the systemd default allows up to 4GB of journal per
+# host; multi-GB journals accumulate quietly on busy boxes.
+- name: Ensure journald drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/journald.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install journald retention drop-in
+  ansible.builtin.copy:
+    src: journald-retention.conf
+    dest: /etc/systemd/journald.conf.d/pmpro-stack-retention.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart systemd-journald
+
 - name: Create pmpro user
   ansible.builtin.user:
     name: pmpro
@@ -74,4 +96,3 @@
     owner: pmpro
     group: pmpro
     mode: "0755"
-

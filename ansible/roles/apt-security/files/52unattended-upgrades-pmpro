@@ -1,0 +1,29 @@
+// pmpro-stack unattended-upgrades policy: SECURITY POCKET ONLY. Loads after
+// the stock 50unattended-upgrades and overrides it deterministically.
+//
+// Design (2026-07-06):
+//   - Security origins only: never -updates/-backports, so feature releases
+//     and behavior changes stay operator-driven.
+//   - mysql-server is blacklisted: its postinst restarts mysqld (slow
+//     restart, InnoDB warmup). Apply MySQL security updates in a maintenance
+//     window instead.
+//   - No automatic reboot: kernel/libc updates install but wait for you to
+//     reboot (check /var/run/reboot-required).
+
+#clear Unattended-Upgrade::Allowed-Origins;
+Unattended-Upgrade::Allowed-Origins {
+	"${distro_id}:${distro_codename}-security";
+	"${distro_id}ESMApps:${distro_codename}-apps-security";
+	"${distro_id}ESM:${distro_codename}-infra-security";
+};
+
+// Entries are anchored regexes: "mysql-server" also matches
+// mysql-server-8.0 / mysql-server-core-8.0.
+Unattended-Upgrade::Package-Blacklist {
+	"mysql-server";
+};
+
+Unattended-Upgrade::Automatic-Reboot "false";
+Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
+Unattended-Upgrade::Remove-Unused-Dependencies "true";
+Unattended-Upgrade::Syslog-Enable "true";

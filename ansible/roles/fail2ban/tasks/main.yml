@@ -20,8 +20,8 @@
   notify: service fail2ban restart
   tags: fail2ban, fail2ban_config
 
-# WordPress login-brute and comment-spam jails: rate-limit POSTs to
-# wp-login.php and wp-comments-post.php per IP at the server level.
+# WordPress jails: rate-limit POSTs to wp-login.php and wp-comments-post.php
+# per IP, ban webshell/secret probes, 404 floods, and admin-surface recon.
 - name: Deploy WordPress fail2ban filters
   ansible.builtin.copy:
     src: "filter.d/{{ item }}"
@@ -32,6 +32,10 @@
   loop:
     - wordpress-login-brute.conf
     - wordpress-spam.conf
+    - wordpress-webshell.conf
+    - wordpress-credential-scan.conf
+    - wordpress-404-flood.conf
+    - wordpress-recon.conf
   notify: service fail2ban restart
   tags: fail2ban, fail2ban_config
 
@@ -45,5 +49,9 @@
   loop:
     - wordpress-login-brute.conf
     - wordpress-spam.conf
+    - wordpress-webshell.conf
+    - wordpress-credential-scan.conf
+    - wordpress-404-flood.conf
+    - wordpress-recon.conf
   notify: service fail2ban restart
   tags: fail2ban, fail2ban_config

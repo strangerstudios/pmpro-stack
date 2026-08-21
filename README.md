@@ -20,9 +20,11 @@ A fresh Ubuntu 24.04 server configured with:
 - **Redis** — object-cache backend, memory-capped with an eviction policy
 - **WP-CLI** — preinstalled
 - **TLS via Let's Encrypt** — `certbot --apache`, auto-renewing (optional)
-- **Hardening** — UFW (deny-all except SSH + Cloudflare), fail2ban with
-  WordPress login-brute + comment-spam jails, the 8G Firewall at the Apache
-  layer, and `.htaccess` protections
+- **Hardening** — UFW (deny-all except SSH + Cloudflare), fail2ban with six
+  WordPress jails (login-brute, comment-spam, webshell probes, secret-file
+  scans, 404 floods, admin recon), the 8G Firewall at the Apache layer,
+  server-level deny rules for backup/dump/secret artifacts, a hardened
+  ImageMagick policy, and security-only unattended upgrades
 - **Send-only outbound mail** — optional BYO-SMTP relay (SES, Mailgun, Postmark…)
 
 ## What it is *not*
@@ -115,9 +117,10 @@ Both phases are in place:
   install WordPress + Paid Memberships Pro end to end.
 
 - **Caching MU plugin** — a must-use plugin (`mu-plugin/`) that bundles Surge
-  (page cache) + Redis Object Cache (object cache), installs both drop-ins, and
-  adds a "PMPro Stack" admin page explaining the setup. `install-wp` deploys it
-  and turns caching on automatically.
+  (page cache) + Redis Object Cache (object cache), installs both drop-ins,
+  regenerates PDF preview thumbnails via poppler (the hardened ImageMagick
+  policy denies the PDF coder), and adds a "PMPro Stack" admin page explaining
+  the setup. `install-wp` deploys it and turns caching on automatically.
 
 Not yet wired up: an opt-in Cloudflare Origin CA TLS path. See
 [`docs/PROVENANCE.md`](docs/PROVENANCE.md).
