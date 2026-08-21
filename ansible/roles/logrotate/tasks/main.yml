@@ -1,0 +1,13 @@
+---
+# Installs a logrotate config for the PHP 8.3 FPM slow log (/var/log/php/slow.log).
+# The slow log captures requests exceeding request_slowlog_timeout (30s) in www.conf.
+
+- name: Setup PHP Slow log Rotation
+  ansible.builtin.copy:
+    src: "php8.3-fpm-slow-log"
+    dest: "/etc/logrotate.d/"
+    owner: root
+    group: root
+    mode: "0644"
+  # notify: service cron restart
+  # tags: logs, logrotate_configs, configs

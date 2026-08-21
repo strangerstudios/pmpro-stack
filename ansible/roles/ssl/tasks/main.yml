@@ -1,0 +1,58 @@
+---
+# Obtains a Let's Encrypt certificate for the site domain via certbot and
+# configures Apache to serve it. certbot and python3-certbot-apache are
+# installed by the base role.
+#
+# This role is a no-op unless letsencrypt_email is set in group_vars. certbot
+# requires a contact email and a publicly resolvable domain (server_name) whose
+# DNS points at this server, with ports 80/443 reachable, to complete the
+# HTTP-01 challenge.
+
+- name: Enable Apache SSL module
+  community.general.apache2_module:
+    name: ssl
+    state: present
+  notify: Reload Apache
+
+# Deploy the site vhost so ServerName/DocumentRoot exist before certbot runs;
+# certbot --apache edits this vhost in place to add the cert directives.
+- name: Deploy site vhost
+  ansible.builtin.template:
+    src: vhost.conf.j2
+    dest: "/etc/apache2/sites-available/{{ server_name }}.conf"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload Apache
+
+- name: Enable site vhost
+  ansible.builtin.command: "a2ensite {{ server_name }}"
+  args:
+    creates: "/etc/apache2/sites-enabled/{{ server_name }}.conf"
+  notify: Reload Apache
+
+- name: Ensure Apache is running
+  ansible.builtin.service:
+    name: apache2
+    state: started
+    enabled: true
+
+# Idempotency: skip issuance if a live cert directory for the domain exists.
+- name: Check for existing Let's Encrypt certificate
+  ansible.builtin.stat:
+    path: "/etc/letsencrypt/live/{{ server_name }}"
+  register: le_cert
+  when: letsencrypt_email | length > 0
+
+- name: Obtain Let's Encrypt certificate via certbot
+  ansible.builtin.command:
+    cmd: >-
+      certbot --apache
+      -d {{ server_name }}{{ ' -d www.' + server_name if include_www | bool else '' }}
+      --non-interactive --agree-tos -m {{ letsencrypt_email }}
+  register: certbot_run
+  changed_when: "'Congratulations' in certbot_run.stdout or 'Successfully' in certbot_run.stdout"
+  when:
+    - letsencrypt_email | length > 0
+    - not le_cert.stat.exists
+  notify: Reload Apache

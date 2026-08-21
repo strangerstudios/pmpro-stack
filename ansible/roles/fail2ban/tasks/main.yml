@@ -1,0 +1,49 @@
+---
+# Installs fail2ban and deploys the custom jail.local config plus WordPress jails.
+# jail.local overrides defaults from jail.conf without modifying the upstream file,
+# so package updates won't clobber our settings.
+
+- name: Installing Fail2ban
+  ansible.builtin.apt:
+    name: fail2ban
+    state: present
+  register: package_install
+  tags: fail2ban
+
+- name: Copying Fail2ban Configuration File
+  ansible.builtin.copy:
+    src: jail.local
+    dest: "/etc/fail2ban/jail.local"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: service fail2ban restart
+  tags: fail2ban, fail2ban_config
+
+# WordPress login-brute and comment-spam jails: rate-limit POSTs to
+# wp-login.php and wp-comments-post.php per IP at the server level.
+- name: Deploy WordPress fail2ban filters
+  ansible.builtin.copy:
+    src: "filter.d/{{ item }}"
+    dest: "/etc/fail2ban/filter.d/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - wordpress-login-brute.conf
+    - wordpress-spam.conf
+  notify: service fail2ban restart
+  tags: fail2ban, fail2ban_config
+
+- name: Deploy WordPress fail2ban jails
+  ansible.builtin.copy:
+    src: "jail.d/{{ item }}"
+    dest: "/etc/fail2ban/jail.d/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - wordpress-login-brute.conf
+    - wordpress-spam.conf
+  notify: service fail2ban restart
+  tags: fail2ban, fail2ban_config

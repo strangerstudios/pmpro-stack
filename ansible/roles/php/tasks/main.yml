@@ -1,0 +1,101 @@
+---
+# Installs PHP 8.3 FPM and configures the www pool.
+# Pool settings (pm_max_children, memory_limit, etc.) come from group_vars/all.yml;
+# tune them there to suit your server.
+#
+# PHP 8.3 is the native default on Ubuntu 24.04 (noble): every php8.3-* package
+# below is in noble's own main/universe repos, so we deliberately do NOT add the
+# ondrej/php PPA. That removes a build-time dependency on launchpad.net, whose
+# intermittent TLS stalls were failing builds. Do not re-add it.
+
+- name: Installing PHP 8.3
+  ansible.builtin.apt:
+    name:
+      - php8.3-fpm
+      - php8.3-gd
+      - php8.3-cli
+      - php8.3-dev
+      - php8.3-zip
+      - php8.3-xml
+      - php8.3-curl
+      - php8.3-imap
+      - php8.3-soap
+      - php8.3-intl
+      - php8.3-mysql
+      - php8.3-bcmath
+      - php8.3-common
+      - php8.3-xmlrpc
+      - php8.3-imagick
+      - php8.3-opcache
+      - php8.3-mbstring
+      - php8.3-readline
+      - php8.3-ldap
+      - php8.3-bz2
+      - php8.3-gmp
+      - php-pear
+      - php8.3-apcu
+      - libmagickcore-6.q16-7-extra
+    state: present
+    cache_valid_time: 3600
+  register: package_install
+  tags: php, php_extensions, php_modules, php_release
+
+- name: Create PHP Log Directory
+  ansible.builtin.file:
+    path: /var/log/php/
+    state: directory
+    mode: u=rwx,g=rx,o=rx
+    owner: root
+    group: root # can change to adm later if needed
+  tags: php, php_log_directory
+
+- name: Create PHP slow log
+  ansible.builtin.file:
+    path: /var/log/php/slow.log
+    state: touch
+    owner: pmpro
+    group: pmpro
+    mode: "0640"
+
+# Pool config is written to /etc/php/www.conf and symlinked into the FPM pool.d dir.
+- name: Setup PHP Pool
+  ansible.builtin.template:
+    src: "www.conf.j2"
+    dest: "/etc/php/www.conf"
+    mode: u=rw,g=r,o=r
+  notify: Restart PHP-FPM
+  tags: php, php_configs, php_pools, configs
+
+- name: Link PHP 8.3 pool
+  ansible.builtin.file:
+    src: /etc/php/www.conf
+    dest: /etc/php/8.3/fpm/pool.d/www.conf
+    state: link
+    force: true
+
+# Ensure the CLI php binary points to 8.3 in case multiple versions are installed
+- name: Get current alternative value
+  ansible.builtin.command: update-alternatives --query php
+  register: php_alt
+  changed_when: false
+
+- name: Set PHP 8.3 for CLI
+  ansible.builtin.command: update-alternatives --set php /usr/bin/php8.3
+  when: "'Value: /usr/bin/php8.3' not in php_alt.stdout and 'Status: manual' not in php_alt.stdout"
+
+- name: Deploy opcache config
+  ansible.builtin.template:
+    src: opcache.ini.j2
+    dest: /etc/php/8.3/mods-available/opcache.ini
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart PHP-FPM
+
+- name: Ensure PHP-FPM is enabled and running
+  ansible.builtin.systemd:
+    name: "php8.3-fpm"
+    state: started
+    enabled: true
+    daemon_reload: true
+  tags: php, php_configs, configs, php_restart

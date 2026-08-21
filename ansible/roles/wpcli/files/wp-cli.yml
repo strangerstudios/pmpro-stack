@@ -1,0 +1,3 @@
+# path: /var/www/vhosts/staging/public
+apache_modules:
+  - mod_rewrite

@@ -1,0 +1,77 @@
+---
+# Base system setup: packages and cleanup.
+# This role runs first and establishes the foundation for all other roles.
+# NOTE: php8.3-redis is installed here because it must be present alongside
+# Redis server before the PHP role configures FPM pools.
+# certbot + python3-certbot-apache are installed here so the ssl role can
+# issue Let's Encrypt certificates.
+
+- name: Refresh apt package metadata
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Installing required software.
+  ansible.builtin.apt:
+    name:
+      - zip
+      - unzip
+      - redis-server
+      - php8.3-redis
+      - certbot
+      - python3-certbot-apache
+      - software-properties-common
+      - swaks
+    state: present
+    cache_valid_time: 3600
+  tags: required_software
+
+- name: Remove useless packages from the cache
+  ansible.builtin.apt:
+    autoclean: true
+
+- name: Remove dependencies that are no longer required and purge their configuration files
+  ansible.builtin.apt:
+    autoremove: true
+    purge: true
+
+# Redis ships from apt with no memory cap (maxmemory 0 / noeviction), which lets
+# the object cache grow unbounded and return errors when full. Cap it with an
+# LRU policy suited to a cache. Raise the cap to suit your server's RAM.
+- name: Cap Redis memory and set object-cache eviction policy
+  ansible.builtin.blockinfile:
+    path: /etc/redis/redis.conf
+    marker: "# {mark} PMPRO STACK REDIS"
+    block: |
+      maxmemory 256mb
+      maxmemory-policy allkeys-lru
+  notify: Restart redis-server
+
+- name: Create pmpro user
+  ansible.builtin.user:
+    name: pmpro
+    shell: /bin/bash
+    create_home: yes
+    state: present
+
+- name: Lock pmpro password
+  ansible.builtin.user:
+    name: pmpro
+    password_lock: true
+
+- name: Create vhost staging base dir
+  ansible.builtin.file:
+    path: /var/www/vhosts/staging
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Create staging dir with pmpro user ownership
+  ansible.builtin.file:
+    path: /var/www/vhosts/staging/public
+    state: directory
+    owner: pmpro
+    group: pmpro
+    mode: "0755"
+

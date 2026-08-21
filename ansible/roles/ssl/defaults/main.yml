@@ -1,0 +1,7 @@
+---
+# Whether to also cover/serve the www.<server_name> alias. Default is off:
+# a www alias is rarely needed, and when proxied, Cloudflare Universal SSL
+# doesn't cover a multi-level www (www.sub.example.com needs a paid Advanced
+# cert). Set true (or pass --www to the CLI) for an apex domain where you want
+# www — Cloudflare's *.example.com cert covers it.
+include_www: false

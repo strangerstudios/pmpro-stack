@@ -1,0 +1,30 @@
+# Secrets — never commit. Keep real tokens/creds in env or host-local var files.
+*.env
+.env
+.pmpro-stack.env
+secrets.yml
+vault.yml
+*.vault
+
+# TLS material — certs/keys are issued on the server, never shipped in the repo.
+*.pem
+*.key
+*.crt
+*.csr
+origin*.pem*
+
+# SSH keys
+id_rsa*
+id_ed25519*
+*.pub
+
+# Ansible runtime
+*.retry
+inventory
+!inventory.example
+.ansible/
+
+# Editor / OS noise
+.DS_Store
+*.swp
+*~

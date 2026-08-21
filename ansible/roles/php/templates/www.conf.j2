@@ -1,0 +1,26 @@
+; pmpro-stack — PHP-FPM pool configuration.
+; Symlinked into /etc/php/X.Y/fpm/pool.d/www.conf.
+; Managed by Ansible — do not edit on the server directly.
+
+[www]
+user = pmpro
+group = pmpro
+listen = /run/php/php8.3-fpm-pmpro.sock
+listen.owner = www-data
+listen.group = www-data
+listen.backlog = 65535
+pm = dynamic
+pm.max_children = {{ pm_max_children }}
+pm.start_servers = 4
+pm.min_spare_servers = 4
+pm.max_spare_servers = 6
+pm.max_requests = 500
+pm.status_path = /status
+ping.path = /ping
+ping.response = pong
+slowlog = /var/log/php/slow.log
+request_slowlog_timeout = 30s
+request_terminate_timeout = 300
+php_admin_value[memory_limit] = {{ php_memory_limit }}
+php_admin_value[upload_max_filesize] = {{ php_upload_max_filesize }}
+php_admin_value[post_max_size] = {{ php_post_max_size }}

@@ -1,0 +1,10 @@
+# Copy this file to `inventory` and edit it for your server.
+#
+# Replace the placeholder IP with your server's public IP or hostname.
+# On a fresh Ubuntu 24.04 droplet you typically connect as root with the SSH
+# key you supplied at create time (DigitalOcean and most providers inject it
+# automatically). Once a non-root admin user exists, switch ansible_user and
+# rely on `become: true` (configured in ansible.cfg / site.yml) for sudo.
+
+[webserver]
+203.0.113.10 ansible_user=root

@@ -1,0 +1,40 @@
+---
+# Installs WP-CLI and sets up the staging vhost directory structure.
+# WP-CLI is installed globally to /usr/local/bin/wp so it's available to all users.
+# wp-cli.yml is placed in the staging document root to set default WP-CLI options
+# (e.g. path, user) so operators don't need to pass flags manually.
+
+- name: Download wp-cli
+  ansible.builtin.get_url:
+    url: "https://github.com/wp-cli/wp-cli/releases/download/v{{ wpcli_version }}/wp-cli-{{ wpcli_version }}.phar"
+    dest: "/usr/local/bin/wp"
+    mode: "0755"
+    checksum: "sha256:{{ wpcli_sha256 }}"
+  tags: wpcli
+
+# - name: Create directory structure for wpcli
+#   ansible.builtin.file:
+#     path: /var/www/.wp-cli
+#     state: directory
+#     owner: www-data
+#     group: www-data
+#     mode: "0755"
+#   tags: wpcli
+
+- name: Ensure staging public directory exists
+  ansible.builtin.file:
+    path: /var/www/vhosts/staging/public
+    state: directory
+    owner: pmpro
+    group: pmpro
+    mode: "0755"
+  tags: wpcli
+
+- name: Copy wpcli wrapper function
+  ansible.builtin.copy:
+    src: wp-cli.yml
+    dest: /var/www/vhosts/staging/public/wp-cli.yml
+    owner: pmpro
+    group: pmpro
+    mode: "0640"
+  tags: wpcli

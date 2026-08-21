@@ -1,0 +1,58 @@
+---
+# Optional send-only outbound mail via an SMTP relay (BYO-SMTP).
+#
+# The entire role is gated on smtp_relayhost. When it is empty (the default),
+# this role does nothing and WordPress falls back to local sendmail. Set
+# smtp_relayhost (and usually smtp_user / smtp_pass) in group_vars to route
+# outbound mail through your own provider (SES, Mailgun, Postmark, etc.).
+#
+# mydestination/myorigin are pinned to localhost-only so the box never treats
+# the site's own mail domain as a local delivery target — site-generated mail
+# to an address @your-domain relays out to the domain's real MX instead of
+# being delivered locally and bounced "User unknown".
+
+- name: Install postfix
+  ansible.builtin.apt:
+    name:
+      - postfix
+      - libsasl2-modules
+    state: present
+  when: smtp_relayhost | length > 0
+
+- name: Configure postfix main.cf for relay
+  ansible.builtin.template:
+    src: main.cf.j2
+    dest: /etc/postfix/main.cf
+    owner: root
+    group: root
+    mode: "0644"
+  when: smtp_relayhost | length > 0
+  notify: Restart postfix
+
+- name: Configure SASL credentials for the relay
+  ansible.builtin.template:
+    src: sasl_passwd.j2
+    dest: /etc/postfix/sasl_passwd
+    owner: root
+    group: root
+    mode: "0600"
+  when:
+    - smtp_relayhost | length > 0
+    - smtp_user | length > 0
+  notify: Restart postfix
+
+- name: Build sasl_passwd hash map
+  ansible.builtin.command:
+    cmd: postmap /etc/postfix/sasl_passwd
+    creates: /etc/postfix/sasl_passwd.db
+  when:
+    - smtp_relayhost | length > 0
+    - smtp_user | length > 0
+  notify: Restart postfix
+
+- name: Ensure postfix is enabled and running
+  ansible.builtin.service:
+    name: postfix
+    state: started
+    enabled: true
+  when: smtp_relayhost | length > 0

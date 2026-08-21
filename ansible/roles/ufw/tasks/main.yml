@@ -1,0 +1,122 @@
+---
+# Configures UFW firewall with a strict allowlist:
+# - SSH (22) open to all (key-auth only, hardened by fail2ban)
+# - HTTP/HTTPS restricted to Cloudflare IP ranges only (fetched live at run time)
+# All other inbound traffic is denied by default.
+#
+# By default 80/443 are locked to Cloudflare IPs, which assumes the site is
+# proxied through Cloudflare. Set `restrict_http_to_cloudflare: false` to admit
+# 80/443 from anywhere instead (sites served straight from the origin).
+
+- name: Ensure UFW is installed
+  ansible.builtin.apt:
+    name: ufw
+    state: present
+    update_cache: no
+
+- name: Set default incoming to deny
+  community.general.ufw:
+    default: deny
+    direction: incoming
+
+- name: Set default outgoing to allow
+  community.general.ufw:
+    default: allow
+    direction: outgoing
+
+- name: Allow SSH
+  community.general.ufw:
+    rule: allow
+    proto: tcp
+    port: "22"
+
+# ── Cloudflare-only mode (default) ────────────────────────────────────────────
+# Fetch Cloudflare IP ranges at run time so the list stays current without manual updates.
+# Retries guard against transient network hiccups; a genuine outage fails loudly
+# so the operator can retry rather than silently using a stale list.
+- name: Fetch Cloudflare IPv4 ranges
+  ansible.builtin.uri:
+    url: https://www.cloudflare.com/ips-v4
+    return_content: yes
+  register: cf_ipv4
+  retries: 3
+  delay: 5
+  until: cf_ipv4.status == 200
+  when: restrict_http_to_cloudflare | bool
+
+- name: Convert IPv4 response to list
+  ansible.builtin.set_fact:
+    cloudflare_ipv4: "{{ cf_ipv4.content.splitlines() }}"
+  when: restrict_http_to_cloudflare | bool
+
+- name: Allow HTTP from Cloudflare IPv4
+  community.general.ufw:
+    rule: allow
+    port: "80"
+    proto: tcp
+    src: "{{ item }}"
+  loop: "{{ cloudflare_ipv4 }}"
+  when: restrict_http_to_cloudflare | bool
+
+- name: Allow HTTPS from Cloudflare IPv4
+  community.general.ufw:
+    rule: allow
+    port: "443"
+    proto: tcp
+    src: "{{ item }}"
+  loop: "{{ cloudflare_ipv4 }}"
+  when: restrict_http_to_cloudflare | bool
+
+- name: Fetch Cloudflare IPv6 ranges
+  ansible.builtin.uri:
+    url: https://www.cloudflare.com/ips-v6
+    return_content: yes
+  register: cf_ipv6
+  retries: 3
+  delay: 5
+  until: cf_ipv6.status == 200
+  when: restrict_http_to_cloudflare | bool
+
+- name: Convert IPv6 response to list
+  ansible.builtin.set_fact:
+    cloudflare_ipv6: "{{ cf_ipv6.content.splitlines() }}"
+  when: restrict_http_to_cloudflare | bool
+
+- name: Allow HTTP from Cloudflare IPv6
+  community.general.ufw:
+    rule: allow
+    port: "80"
+    proto: tcp
+    src: "{{ item }}"
+  loop: "{{ cloudflare_ipv6 }}"
+  when: restrict_http_to_cloudflare | bool
+
+- name: Allow HTTPS from Cloudflare IPv6
+  community.general.ufw:
+    rule: allow
+    port: "443"
+    proto: tcp
+    src: "{{ item }}"
+  loop: "{{ cloudflare_ipv6 }}"
+  when: restrict_http_to_cloudflare | bool
+
+# ── Direct mode (restrict_http_to_cloudflare: false) ──────────────────────────
+# Site is served straight from the origin (no Cloudflare proxy), so admit
+# 80/443 from anywhere.
+- name: Allow HTTP from anywhere (direct mode)
+  community.general.ufw:
+    rule: allow
+    port: "80"
+    proto: tcp
+  when: not (restrict_http_to_cloudflare | bool)
+
+- name: Allow HTTPS from anywhere (direct mode)
+  community.general.ufw:
+    rule: allow
+    port: "443"
+    proto: tcp
+  when: not (restrict_http_to_cloudflare | bool)
+
+- name: Enable UFW
+  community.general.ufw:
+    state: enabled

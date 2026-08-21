@@ -1,0 +1,66 @@
+---
+# Creates a 2G swapfile if one doesn't exist, formats it, and activates it.
+# vm.swappiness is set to 10 to minimise swap usage on SSD-backed VPS hosts
+# (kernel only uses swap when RAM is >90% full).
+
+- name: Check /swapfile file
+  ansible.builtin.stat:
+    path: "/swapfile"
+  register: swapfile_stat
+  tags: swap
+
+- name: Create swapfile if missing
+  ansible.builtin.command:
+    cmd: fallocate -l 2048M /swapfile
+  args:
+    creates: /swapfile
+  when: not swapfile_stat.stat.exists
+  tags: swap
+
+- name: Set swap file permission
+  ansible.builtin.file:
+    path: /swapfile
+    owner: root
+    group: root
+    mode: "0600"
+  tags: swap
+
+# Detect whether the file has already been formatted to avoid re-running mkswap
+- name: Check swapfile type
+  ansible.builtin.command: file /swapfile
+  register: swap_file_type
+  changed_when: false
+  tags: swap
+
+- name: Format swapfile if not already formatted
+  ansible.builtin.command: mkswap /swapfile
+  when: swap_file_type.stdout is not search("Linux swap")
+  tags: swap
+
+- name: Add swap to fstab
+  ansible.builtin.lineinfile:
+    dest: /etc/fstab
+    regexp: "swapfile"
+    line: "/swapfile none swap sw 0 0"
+    state: present
+  tags: swap
+
+- name: Get active swap devices
+  ansible.builtin.command: swapon --show=NAME --noheadings
+  register: active_swaps
+  changed_when: false
+  tags: swap
+
+- name: Enable swapfile
+  ansible.builtin.command: swapon /swapfile
+  when: "'/swapfile' not in active_swaps.stdout_lines"
+  tags: swap
+
+- name: Setup vm.swappiness in /etc/sysctl.conf
+  ansible.posix.sysctl:
+    name: vm.swappiness
+    value: "10"
+    sysctl_set: true
+    state: present
+    reload: true
+  tags: swap

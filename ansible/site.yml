@@ -1,0 +1,35 @@
+---
+# =============================================================================
+# pmpro-stack — site playbook
+# =============================================================================
+# Provisions a hardened LAMP + Redis + PHP-FPM stack for WordPress / Paid
+# Memberships Pro on a fresh Ubuntu 24.04 server.
+#
+# Usage:
+#   ansible-playbook -i inventory site.yml
+#
+# Target individual roles with tags, e.g.:
+#   ansible-playbook -i inventory site.yml --tags php
+#   ansible-playbook -i inventory site.yml --tags apache,ssl
+#
+# Set server_name + letsencrypt_email in group_vars/all.yml before running if
+# you want a TLS certificate. SMTP relay is optional (see group_vars/all.yml).
+- name: pmpro-stack
+  hosts: all
+  become: true
+  gather_facts: true
+
+  roles:
+    - { role: swap, tags: ['swap'] }                       # 2G swap + low swappiness
+    - { role: base, tags: ['base'] }                       # apt metadata, core packages, pmpro user, Redis
+    - { role: postfix-relay, tags: ['postfix'] }           # optional send-only outbound mail (BYO-SMTP)
+    - { role: php, tags: ['php'] }                         # PHP 8.3 FPM with tunable pool config
+    - { role: apache, tags: ['apache'] }                   # Apache2 with remoteip (Cloudflare), PHP-FPM proxy
+    - { role: mysql, tags: ['mysql'] }                     # MySQL with tunable InnoDB settings
+    - { role: wpcli, tags: ['wpcli'] }                     # WP-CLI binary + staging directory
+    - { role: ssl, tags: ['ssl'] }                         # Let's Encrypt certificate + Apache vhost
+    - { role: fail2ban, tags: ['fail2ban'] }               # Intrusion prevention + WordPress jails
+    - { role: ufw, tags: ['ufw'] }                         # Firewall: deny all except SSH + Cloudflare IPs
+    - { role: logrotate, tags: ['logrotate'] }             # PHP slow log rotation
+    - { role: 8g-fw, tags: ['8g-fw'] }                     # Apache-level malicious request blocking
+    - { role: motd_banner, tags: ['motd'] }                # Login banner

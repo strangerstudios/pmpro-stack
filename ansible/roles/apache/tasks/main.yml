@@ -1,0 +1,91 @@
+---
+# Installs Apache2 and configures it for PHP-FPM via a Unix socket proxy.
+# remoteip module + config restores real client IPs from the Cloudflare
+# CF-Connecting-IP header (trusted-proxy scoped to CF ranges only).
+# Directory indexing is disabled globally as a security baseline.
+
+- name: Installing Apache2 and required modules
+  ansible.builtin.apt:
+    name:
+      - apache2
+    state: present
+    cache_valid_time: 3600
+
+# Enable modules required for PHP-FPM (proxy_fcgi + setenvif) and Cloudflare real IPs (remoteip)
+- name: Enable Apache2 modules for PHP-FPM
+  ansible.builtin.command:
+    cmd: a2enmod {{ item }}
+  args:
+    creates: "/etc/apache2/mods-enabled/{{ item }}.load"
+  loop:
+    - rewrite
+    - remoteip
+    - proxy
+    - proxy_fcgi
+    - setenvif
+
+- name: Enable PHP-FPM Apache config
+  ansible.builtin.command:
+    cmd: a2enconf php8.3-fpm
+  args:
+    creates: "/etc/apache2/conf-enabled/php8.3-fpm.conf"
+
+# - name: Set up Apache2 configuration file
+#   ansible.builtin.copy:
+#     src: apache2.conf
+#     dest: /etc/apache2/apache2.conf
+#     owner: root
+#     group: root
+#     mode: "0644"
+#   notify: Reload Apache
+
+# Prevent directory listing on all vhosts — overridden per-site if needed
+- name: Disable directory indexing globally
+  ansible.builtin.copy:
+    dest: /etc/apache2/conf-available/security-hardening.conf
+    content: |
+      <Directory /var/www/>
+        Options -Indexes +FollowSymLinks
+      </Directory>
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Enable security hardening config
+  ansible.builtin.command: a2enconf security-hardening
+  args:
+    creates: /etc/apache2/conf-enabled/security-hardening.conf
+  notify: Reload Apache
+
+# remoteip.conf sets RemoteIPHeader CF-Connecting-IP and trusts Cloudflare IP ranges
+- name: Set up RealIP configuration
+  ansible.builtin.copy:
+    src: remoteip.conf
+    dest: /etc/apache2/conf-available/remoteip.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload Apache
+
+- name: Enable remoteip config
+  ansible.builtin.command: a2enconf remoteip
+  args:
+    creates: /etc/apache2/conf-enabled/remoteip.conf
+  notify: Reload Apache
+
+# WordPress comment-spam protection (Layer 2). Blocks bots POSTing to
+# wp-comments-post.php without a valid referer or with a scripted user agent.
+- name: Deploy wordpress-protection config
+  ansible.builtin.copy:
+    src: wordpress-protection.conf
+    dest: /etc/apache2/conf-available/wordpress-protection.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload Apache
+
+- name: Enable wordpress-protection config
+  ansible.builtin.command: a2enconf wordpress-protection
+  args:
+    creates: /etc/apache2/conf-enabled/wordpress-protection.conf
+  notify: Reload Apache

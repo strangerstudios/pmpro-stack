@@ -1,0 +1,22 @@
+---
+# Deploys the 8G Firewall as an Apache conf — blocks malicious requests at the
+# web server level before they reach PHP/WordPress.
+# See: https://perishablepress.com/8g-firewall/
+# Uses a symlink to enable the config (equivalent to a2enconf) so it can be
+# easily disabled by removing the symlink without touching the source file.
+
+- name: Deploy 8G Firewall Apache config
+  ansible.builtin.copy:
+    src: 8g-firewall.conf
+    dest: /etc/apache2/conf-available/8g-firewall.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Reload Apache
+
+- name: Enable 8G Apache config
+  ansible.builtin.file:
+    src: /etc/apache2/conf-available/8g-firewall.conf
+    dest: /etc/apache2/conf-enabled/8g-firewall.conf
+    state: link
+  notify: Reload Apache

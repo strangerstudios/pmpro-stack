@@ -1,0 +1,48 @@
+---
+# =============================================================================
+# pmpro-stack — tunables
+# =============================================================================
+# All values below are safe defaults for a ~4 GB droplet. Override per host as
+# needed. There are NO secrets with real values here; SMTP credentials default
+# to empty (BYO).
+
+# --- Site / TLS --------------------------------------------------------------
+# The primary domain this server serves. Used for the Apache vhost and for the
+# Let's Encrypt certificate (issued for both server_name and www.server_name).
+server_name: "example.com"
+
+# Contact email for Let's Encrypt. REQUIRED for the ssl role to do anything:
+# leave empty and certbot is skipped entirely (no cert issued, HTTP-only vhost).
+# The domain in server_name must publicly resolve to this server with ports
+# 80/443 reachable for the certbot HTTP-01 challenge to succeed.
+letsencrypt_email: ""
+
+# --- Outbound mail (postfix-relay role) --------------------------------------
+# Send-only SMTP relay. Leave smtp_relayhost EMPTY (default) to skip the role
+# entirely — WordPress then uses local sendmail. Set it to route outbound mail
+# through your own provider (e.g. SES, Mailgun, Postmark). Put real credentials
+# in a vaulted/host-local var file, NOT in version control.
+smtp_relayhost: ""
+smtp_relayport: 587
+smtp_user: ""
+smtp_pass: ""
+
+# --- MySQL / InnoDB ----------------------------------------------------------
+# innodb_buffer_pool_size is intentionally conservative: MySQL shares the host
+# with Apache + PHP-FPM, so a large pool crowds out FPM workers. 384M fits a
+# typical WP working set on a 4 GB host — size it up on bigger/busier servers.
+max_connections: 100
+innodb_buffer_pool_size: 384M
+innodb_buffer_pool_instances: 1
+innodb_log_file_size: 256M
+
+# --- PHP OPcache -------------------------------------------------------------
+opcache_memory_consumption: 384
+opcache_interned_strings_buffer: 16
+opcache_max_accelerated_files: 20000
+
+# --- PHP-FPM pool ------------------------------------------------------------
+pm_max_children: 20
+php_memory_limit: 256M
+php_upload_max_filesize: 128M
+php_post_max_size: 128M

@@ -1,0 +1,6 @@
+---
+# When true (default), 80/443 are admitted ONLY from Cloudflare IP ranges —
+# this assumes the site is proxied (orange-cloud) through Cloudflare.
+# Set false (the CLI does this for `create --direct`) to admit 80/443 from
+# anywhere, for sites served straight from the origin with no Cloudflare proxy.
+restrict_http_to_cloudflare: true

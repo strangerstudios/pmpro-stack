@@ -1,0 +1,14 @@
+; PMPro Ansible managed configuration for php opcache module
+; priority=10
+
+zend_extension=opcache.so
+opcache.jit=off
+
+opcache.enable=1
+opcache.enable_cli=0
+
+opcache.memory_consumption={{ opcache_memory_consumption}}
+opcache.interned_strings_buffer={{ opcache_interned_strings_buffer}}
+opcache.max_accelerated_files={{ opcache_max_accelerated_files}}
+opcache.revalidate_freq=60
+opcache.save_comments=1

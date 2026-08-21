@@ -1,0 +1,40 @@
+# pmpro-stack — postfix main.cf (send-only relay).
+# Managed by Ansible. All outbound mail is handed to the configured relay.
+# This box never accepts inbound mail or treats any domain as a local
+# delivery destination.
+
+compatibility_level = 3.8
+
+command_directory = /usr/sbin
+daemon_directory = /usr/lib/postfix/sbin
+data_directory = /var/lib/postfix
+
+# Never claim the site's own mail domain as local: site-generated mail to an
+# address @your-domain should relay out to that domain's real MX, not be
+# delivered locally and bounced "User unknown".
+mydestination = localhost.localdomain, localhost
+# Keep local system/cron mail (bare `root` etc.) on the box rather than
+# relaying it out as root@your-domain and bouncing.
+myorigin = localhost
+unknown_local_recipient_reject_code = 550
+
+# Disable SMTPUTF8. Many relays don't advertise it; postfix would otherwise
+# bounce messages with non-ASCII headers before they leave the box.
+smtputf8_enable = no
+
+mynetworks = 127.0.0.0/8
+smtpd_banner = $myhostname ESMTP $mail_name (Ubuntu)
+
+# --- Relay ------------------------------------------------------------------
+relayhost = [{{ smtp_relayhost }}]:{{ smtp_relayport | default(587) }}
+{% if smtp_user | length > 0 %}
+smtp_sasl_auth_enable = yes
+smtp_sasl_security_options = noanonymous
+smtp_sasl_password_maps = hash:/etc/postfix/sasl_passwd
+{% endif %}
+smtp_use_tls = yes
+smtp_tls_security_level = encrypt
+smtp_tls_note_starttls_offer = yes
+
+inet_protocols = ipv4
+inet_interfaces = all

@@ -1,0 +1,12 @@
+---
+# Installs a cosmetic MOTD banner that runs on SSH login.
+# Scripts in /etc/update-motd.d/ are executed in numeric order — 99 ensures
+# this runs last, after default Ubuntu MOTD entries.
+
+- name: Install MOTD banner script
+  ansible.builtin.copy:
+    src: 99-pmpro-stack
+    dest: /etc/update-motd.d/99-pmpro-stack
+    owner: root
+    group: root
+    mode: "0755"

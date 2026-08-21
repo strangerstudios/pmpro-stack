@@ -1,0 +1,35 @@
+---
+# Installs MySQL and applies InnoDB tuning via a Jinja2 template.
+# InnoDB settings (buffer pool size, instances, log file size) are driven by
+# host/plan variables so the same role works across all hosting tiers.
+# python3-mysqldb and python3-pymysql are required for Ansible MySQL modules.
+
+- name: Install MySQL packages
+  ansible.builtin.apt:
+    name:
+      - mysql-server
+      - python3-mysqldb
+      - python3-pymysql
+    state: present
+    #update_cache: true
+  register: package_install
+  tags: mysql
+
+# Template writes to the standard MySQL config override location.
+# Changes trigger a restart via the handler.
+- name: Set up MySQL configuration file
+  ansible.builtin.template:
+    src: mysqld.cnf.j2
+    dest: "/etc/mysql/mysql.conf.d/mysqld.cnf"
+    owner: root
+    group: root
+    mode: "0644"
+  tags: mysql, mysql_configs
+  notify: Restart MySQL
+
+- name: Start MySQL service
+  ansible.builtin.systemd:
+    name: mysql
+    state: started
+    enabled: true
+  tags: mysql

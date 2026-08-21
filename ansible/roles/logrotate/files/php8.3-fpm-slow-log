@@ -1,0 +1,14 @@
+/var/log/php/*.log {
+    rotate 7
+    weekly
+    missingok
+    notifempty
+    compress
+    delaycompress
+    create 0640 pmpro pmpro
+    postrotate
+        if [ -x /usr/lib/php/php8.3-fpm-reopenlogs ]; then
+            /usr/lib/php/php8.3-fpm-reopenlogs;
+        fi
+    endscript
+}
