@@ -77,6 +77,10 @@ function config( $key ) {
 		}
 	}
 
+	if ( defined( 'SURGE_CONFIG_CALLBACK' ) && is_callable( SURGE_CONFIG_CALLBACK ) ) {
+		$config = call_user_func( SURGE_CONFIG_CALLBACK, $config );
+	}
+
 	return $config[ $key ];
 }
 

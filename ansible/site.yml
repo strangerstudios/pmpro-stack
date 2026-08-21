@@ -19,9 +19,38 @@
   become: true
   gather_facts: true
 
+  pre_tasks:
+    - name: Pause automatic APT timers during provisioning
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        state: stopped
+      loop:
+        - apt-daily.timer
+        - apt-daily-upgrade.timer
+      tags: always
+
+    - name: Wait for any running automatic APT jobs to finish
+      ansible.builtin.command:
+        argv:
+          - systemctl
+          - is-active
+          - --quiet
+          - "{{ item }}"
+      register: apt_background_job
+      changed_when: false
+      failed_when: false
+      until: apt_background_job.rc != 0
+      retries: 60
+      delay: 2
+      loop:
+        - apt-daily.service
+        - apt-daily-upgrade.service
+      tags: always
+
   roles:
     - { role: swap, tags: ['swap'] }                       # 2G swap + low swappiness
     - { role: base, tags: ['base'] }                       # apt metadata, core packages, pmpro user, Redis
+    - { role: apt-security, tags: ['apt-security'] }       # security-only unattended upgrades
     - { role: postfix-relay, tags: ['postfix'] }           # optional send-only outbound mail (BYO-SMTP)
     - { role: php, tags: ['php'] }                         # PHP 8.3 FPM with tunable pool config
     - { role: apache, tags: ['apache'] }                   # Apache2 with remoteip (Cloudflare), PHP-FPM proxy
@@ -33,3 +62,14 @@
     - { role: logrotate, tags: ['logrotate'] }             # PHP slow log rotation
     - { role: 8g-fw, tags: ['8g-fw'] }                     # Apache-level malicious request blocking
     - { role: motd_banner, tags: ['motd'] }                # Login banner
+
+  post_tasks:
+    - name: Resume automatic APT timers after provisioning
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        enabled: true
+        state: started
+      loop:
+        - apt-daily.timer
+        - apt-daily-upgrade.timer
+      tags: always

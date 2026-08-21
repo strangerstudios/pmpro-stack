@@ -9,14 +9,15 @@ Run the whole thing, or target a slice with `--tags`.
 | Role | What it does |
 |------|--------------|
 | `swap` | 2 GB swapfile + low `vm.swappiness`, so a memory spike degrades instead of OOM-killing. |
-| `base` | apt metadata refresh, core packages (curl, zip, redis, certbot), the `pmpro` system user, the `/var/www/vhosts/staging/public` web root, and a memory-capped Redis with an eviction policy. |
+| `base` | apt metadata refresh, core packages (curl, zip, redis, certbot), the `pmpro` system user, the `/var/www/vhosts/staging/public` web root, a memory-capped Redis with an eviction policy, and a 90-day journald retention cap. |
+| `apt-security` | Security-only unattended upgrades: `-security` pocket daily, MySQL blacklisted (patch it in a maintenance window), no automatic reboot. |
 | `postfix-relay` | **Optional.** Send-only outbound mail through your own SMTP relay. No-op unless `smtp_relayhost` is set. Pins `mydestination`/`myorigin` to localhost so the box never swallows mail to the site's own domain. |
-| `php` | PHP 8.3-FPM pool (user `pmpro`, unix socket), opcache, slow-log. Tunables in `group_vars`. |
-| `apache` | Apache2 fronting PHP-FPM over the socket, `mod_remoteip` trusting Cloudflare ranges (so logs/fail2ban see the real client IP behind the proxy), directory indexing off, and two drop-in protection configs. |
+| `php` | PHP 8.3-FPM pool (user `pmpro`, unix socket), opcache, slow-log, an FPM-only 60s execution-time default, and a hardened ImageMagick policy (raster formats only; PDF previews rasterize via poppler). Tunables in `group_vars`. |
+| `apache` | Apache2 fronting PHP-FPM over the socket, `mod_remoteip` trusting Cloudflare ranges (so logs/fail2ban see the real client IP behind the proxy), directory indexing off, Ubuntu's default vhost disabled, Timeout/ProxyTimeout pinned to 300 to match FPM, and two drop-in protection configs (deny rules inherit into every vhost via `RewriteOptions InheritDownBefore` + the vhost's `RewriteEngine On`). |
 | `mysql` | MySQL bound to localhost, utf8mb4, InnoDB buffer pool sized for a membership-site working set (not a flat % of RAM — it shares the box with FPM). |
 | `wpcli` | WP-CLI binary + a sane `wp-cli.yml`. |
 | `ssl` | **Optional.** Deploys the site vhost, then `certbot --apache` issues a Let's Encrypt cert for `server_name` (plus `www` only when `include_www: true`). No-op unless `letsencrypt_email` is set. Idempotent (skips if a live cert exists). |
-| `fail2ban` | fail2ban + WordPress jails: login-brute (throttles repeated `wp-login.php` POSTs) and comment-spam. |
+| `fail2ban` | fail2ban + WordPress jails: login-brute (throttles repeated `wp-login.php` POSTs), comment-spam, webshell probes, `.env`/`.git`/secret scanning, 404 floods, and wp-admin/admin-ajax recon walks. |
 | `ufw` | Deny-all inbound except SSH and the Cloudflare ranges on 80/443. Set `restrict_http_to_cloudflare: false` (or `create --direct`) to open 80/443 to the world for non-proxied origins. |
 | `logrotate` | Rotates the PHP-FPM slow log. |
 | `8g-fw` | The 8G Firewall (perishablepress.com) at the Apache layer — blocks a large set of malicious request patterns before PHP runs. |

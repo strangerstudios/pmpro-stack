@@ -11,7 +11,9 @@
     state: present
     cache_valid_time: 3600
 
-# Enable modules required for PHP-FPM (proxy_fcgi + setenvif) and Cloudflare real IPs (remoteip)
+# Enable modules required for PHP-FPM (proxy_fcgi + setenvif) and Cloudflare real IPs (remoteip).
+# headers: with AllowOverride All, any plugin shipping a Header directive 500s
+# its whole directory when mod_headers is absent (core:alert on an unknown directive).
 - name: Enable Apache2 modules for PHP-FPM
   ansible.builtin.command:
     cmd: a2enmod {{ item }}
@@ -23,12 +25,24 @@
     - proxy
     - proxy_fcgi
     - setenvif
+    - headers
 
 - name: Enable PHP-FPM Apache config
   ansible.builtin.command:
     cmd: a2enconf php8.3-fpm
   args:
     creates: "/etc/apache2/conf-enabled/php8.3-fpm.conf"
+
+# Ubuntu's stock 000-default vhost has no RewriteEngine, so it would serve
+# bare-IP / wrong-Host traffic with none of the inherited deny rules (and log
+# it separately). With it gone, that traffic lands on the site vhost, which
+# carries the protections; with no vhost at all (ssl role not run) the main
+# server serves and the server-context rules apply directly.
+- name: Disable Ubuntu default vhost
+  ansible.builtin.command: a2dissite 000-default
+  args:
+    removes: /etc/apache2/sites-enabled/000-default.conf
+  notify: Reload Apache
 
 # - name: Set up Apache2 configuration file
 #   ansible.builtin.copy:
@@ -88,4 +102,23 @@
   ansible.builtin.command: a2enconf wordpress-protection
   args:
     creates: /etc/apache2/conf-enabled/wordpress-protection.conf
+  notify: Reload Apache
+
+# Pins Timeout/ProxyTimeout to 300, matching the www pool's
+# request_terminate_timeout and Ubuntu's shipped apache2.conf. A droplet left
+# on Apache's compiled-in 60s default would race a full-length PHP request and
+# cut the socket first.
+- name: Set up request timeout config
+  ansible.builtin.copy:
+    src: timeouts.conf
+    dest: /etc/apache2/conf-available/timeouts.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload Apache
+
+- name: Enable timeouts config
+  ansible.builtin.command: a2enconf timeouts
+  args:
+    creates: /etc/apache2/conf-enabled/timeouts.conf
   notify: Reload Apache
