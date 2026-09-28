@@ -147,9 +147,9 @@ else
 	# A prefix-shaped IPv6 client on a combined line is still the client, not
 	# mistaken for a host:port prefix.
 	fx="$TEMP_DIR/v6edge.log"
-	printf '%s\n' "2606:4700:3036::6815:1b2d - - $STAMP ${REQ[wordpress-recon]} \"-\" \"Mozilla/5.0\"" > "$fx"
+	printf '%s\n' "2001:db8:3036::6815:1b2d - - $STAMP ${REQ[wordpress-recon]} \"-\" \"Mozilla/5.0\"" > "$fx"
 	got="$(matched_hosts "$fx" "$FILTER_DIR/wordpress-recon.conf" | tr '\n' ' ')"
-	if [ "$got" = "2606:4700:3036::6815:1b2d " ]; then
+	if [ "$got" = "2001:db8:3036::6815:1b2d " ]; then
 		ok "an IPv6 client on a combined line is not eaten by the prefix"
 	else
 		bad "an IPv6 client on a combined line is not eaten by the prefix" "got '$got'"

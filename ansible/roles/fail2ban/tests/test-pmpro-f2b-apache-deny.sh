@@ -22,7 +22,14 @@ TEMP_DIR="$(mktemp -d)"
 STUB_DIR="$TEMP_DIR/bin"
 mkdir -p "$STUB_DIR"
 printf '#!/bin/sh\nexit 0\n' > "$STUB_DIR/apache2ctl"
-printf '#!/bin/sh\nexit 0\n' > "$STUB_DIR/systemctl"
+# systemctl logs each call and fails once when $STUB_FAIL_ONCE exists.
+cat > "$STUB_DIR/systemctl" <<'STUB'
+#!/bin/sh
+echo "$*" >> "$STUB_LOG"
+if [ -n "${STUB_FAIL_ONCE:-}" ] && [ -f "$STUB_FAIL_ONCE" ]; then rm -f "$STUB_FAIL_ONCE"; exit 1; fi
+exit 0
+STUB
+printf '#!/bin/sh\nexit 0\n' > "$STUB_DIR/logger"
 # flock is absent on some dev hosts (macOS); the fd is already open via exec, so
 # a no-op lock is fine for a single-process offline test.
 command -v flock >/dev/null 2>&1 || printf '#!/bin/sh\nexit 0\n' > "$STUB_DIR/flock"
@@ -34,6 +41,8 @@ export PMPRO_F2B_CONF="$TEMP_DIR/deny.conf"
 export PMPRO_F2B_LINK="$TEMP_DIR/deny.link"
 export PMPRO_F2B_LOCK="$TEMP_DIR/deny.lock"
 export PMPRO_F2B_RELOAD=0
+export PMPRO_F2B_RELOAD_DELAY=1
+export STUB_LOG="$TEMP_DIR/systemctl.log"
 
 PASSED=0
 FAILED=0
@@ -79,6 +88,45 @@ if conf_directive "AuthMerging And"; then ok "AuthMerging survives a re-render";
 # Clearing the last jail empties the deny list but still renders a valid guarded conf.
 "$DENY" clear wordpress-404-flood >/dev/null 2>&1
 if conf_directive "AuthMerging And" && conf_directive "<RequireAll>" && ! conf_has "Require not ip"; then ok "empty deny list still renders the guard"; else fail "empty render dropped the guard or kept a ban"; fi
+
+# Reference counting: an IP two jails hold survives one jail clearing.
+"$DENY" add wordpress-recon 9.9.9.9 >/dev/null 2>&1
+"$DENY" add wordpress-webshell 9.9.9.9 >/dev/null 2>&1
+"$DENY" clear wordpress-recon >/dev/null 2>&1
+if conf_has "Require not ip 9.9.9.9"; then ok "IP held by another jail survives a clear"; else fail "clear dropped an IP another jail still holds"; fi
+"$DENY" del wordpress-webshell 9.9.9.9 >/dev/null 2>&1
+if ! conf_has "Require not ip 9.9.9.9"; then ok "IP drops once the last jail unbans"; else fail "IP still denied after the last unban"; fi
+
+# A non-IP target is refused and never reaches the list or the conf.
+"$DENY" add wordpress-recon 'bogus host' >/dev/null 2>&1; rc=$?
+if [ "$rc" -eq 2 ] && ! grep -q bogus "$PMPRO_F2B_LIST" && ! conf_has bogus; then ok "non-IP ban target refused (exit 2, list untouched)"; else fail "non-IP ban target accepted (rc=$rc)"; fi
+"$DENY" add wordpress-recon 2001:db8::/64 >/dev/null 2>&1
+if conf_has "Require not ip 2001:db8::/64"; then ok "IPv6 CIDR accepted"; else fail "IPv6 CIDR refused"; fi
+"$DENY" clear wordpress-recon >/dev/null 2>&1
+
+# The conf is enabled on first render only: a deliberate a2disconf sticks.
+if [ -L "$PMPRO_F2B_LINK" ]; then ok "first render enabled the conf"; else fail "first render did not enable the conf"; fi
+rm -f "$PMPRO_F2B_LINK"
+"$DENY" add wordpress-recon 1.2.3.4 >/dev/null 2>&1
+if [ ! -e "$PMPRO_F2B_LINK" ]; then ok "a disabled conf stays disabled on re-render"; else fail "re-render re-enabled a disabled conf"; fi
+"$DENY" clear wordpress-recon >/dev/null 2>&1
+
+# Reloads coalesce: a burst of bans (a fail2ban restart replay) is one reload.
+wait_idle() { for _ in $(seq 1 80); do pgrep -f "$DENY _reload-worker" >/dev/null || return 0; sleep 0.25; done; }
+: > "$STUB_LOG"
+for i in $(seq 1 20); do PMPRO_F2B_RELOAD=1 "$DENY" add wordpress-recon "198.51.100.$i" >/dev/null 2>&1; done
+sleep 0.5; wait_idle
+n=$(grep -c "try-reload-or-restart apache2" "$STUB_LOG" || true)
+if [ "$n" -ge 1 ] && [ "$n" -le 2 ]; then ok "20 bans coalesced into $n reload(s)"; else fail "20 bans caused $n reloads (want 1-2)"; fi
+
+# A failed reload is retried rather than dropped.
+: > "$STUB_LOG"
+export STUB_FAIL_ONCE="$TEMP_DIR/fail-once"; touch "$STUB_FAIL_ONCE"
+PMPRO_F2B_RELOAD=1 "$DENY" add wordpress-recon 203.0.113.50 >/dev/null 2>&1
+sleep 0.5; wait_idle
+n=$(grep -c "try-reload-or-restart apache2" "$STUB_LOG" || true)
+if [ "$n" -eq 2 ] && [ ! -f "$PMPRO_F2B_LIST.reload-pending" ]; then ok "failed reload retried and succeeded"; else fail "failed reload not retried (calls=$n)"; fi
+unset STUB_FAIL_ONCE
 
 echo
 echo "passed=$PASSED failed=$FAILED"
