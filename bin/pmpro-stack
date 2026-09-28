@@ -691,7 +691,11 @@ cmd_install_wp() {
 			--dbhost="localhost" \
 			--dbcharset="utf8mb4" \
 			--dbprefix="wp_" \
-			--force
+			--force \
+			--extra-php <<-'EXTRA_PHP'
+		// Honor Cloudflare's X-Forwarded-Proto so an HTTP-to-origin hop (no origin cert yet, or SSL mode Flexible) doesn't loop on redirects.
+		if ( isset( $_SERVER['HTTP_X_FORWARDED_PROTO'] ) && 'https' === $_SERVER['HTTP_X_FORWARDED_PROTO'] ) { $_SERVER['HTTPS'] = 'on'; }
+		EXTRA_PHP
 
 		rm -f wp-config-sample.php
 
