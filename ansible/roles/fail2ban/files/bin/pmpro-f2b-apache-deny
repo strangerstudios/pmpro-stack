@@ -1,0 +1,152 @@
+#!/bin/bash
+# Maintains the Apache deny list fail2ban bans into.
+#
+# Packet-level bans (iptables/nftables) match the packet source, which on a
+# Cloudflare-proxied site is a Cloudflare edge IP, never the attacker. Apache
+# sees the real client via mod_remoteip, so the ban has to land here.
+#
+# Every HTTP jail shares this one deny list, and their bantimes differ by up to
+# a week, so entries are reference-counted per jail: an IP stays denied until
+# the LAST jail holding it unbans. Storing bare IPs would let the shortest ban
+# expiring drop a deny that longer jails still want.
+#
+# List format, one record per line: <jail><TAB><ip>
+#
+# Usage: pmpro-f2b-apache-deny <add|del|clear|flush|render> [jail] [ip]
+
+set -euo pipefail
+
+# Overridable so the render path can be exercised in tests.
+LIST=${PMPRO_F2B_LIST:-/var/lib/fail2ban/pmpro-apache-deny.list}
+CONF=${PMPRO_F2B_CONF:-/etc/apache2/conf-available/pmpro-f2b-deny.conf}
+LINK=${PMPRO_F2B_LINK:-/etc/apache2/conf-enabled/pmpro-f2b-deny.conf}
+LOCK=${PMPRO_F2B_LOCK:-/var/lock/pmpro-f2b-apache-deny.lock}
+RELOAD=${PMPRO_F2B_RELOAD:-1}
+
+# Distinct IPs still referenced by at least one jail.
+active_ips() {
+	[[ -s "$LIST" ]] || return 0
+	cut -f2 "$LIST" | grep -v '^$' | sort -u
+}
+
+build_conf() {
+	echo "# Managed by fail2ban (pmpro-apache-deny). Do not edit by hand."
+	echo "# Regenerate: pmpro-f2b-apache-deny render"
+	echo
+	# Location is applied after Directory in Apache's merge order, so a
+	# Directory-scoped block at a shallower path would be silently inert.
+	#
+	# AuthMerging And is load-bearing: without it (AuthMerging defaults to Off)
+	# this last-evaluated Location REPLACES the authorization of every earlier
+	# context, so its "Require all granted" would override the "Require all
+	# denied" in .htaccess, <Files ~ "^\.ht">, and wordpress-protection.conf's
+	# FilesMatch blocks, serving member media and secret files to any non-banned
+	# visitor. "And" combines this ban list WITH those denies instead of
+	# replacing them: a denied resource stays denied, a granted one stays granted
+	# for non-banned IPs, and banned IPs are still refused everywhere.
+	echo '<Location "/">'
+	echo "  AuthMerging And"
+	echo "  <RequireAll>"
+	echo "    Require all granted"
+	active_ips | while read -r ip; do
+		echo "    Require not ip $ip"
+	done
+	echo "  </RequireAll>"
+	echo "</Location>"
+}
+
+render() {
+	local tmp backup
+	tmp=$(mktemp "${CONF}.XXXXXX")
+	build_conf > "$tmp"
+	chmod 0644 "$tmp"
+
+	# Every HTTP jail shares this action; a fail2ban restart replays every persisted
+	# ban through actionban. Skipping identical renders avoids that reload burst.
+	if [[ -f "$CONF" ]] && cmp -s "$tmp" "$CONF"; then
+		rm -f "$tmp"
+		ensure_link
+		return 0
+	fi
+
+	# Keep the outgoing conf so a failed configtest can be rolled back. Leaving
+	# a broken file in place would arm any *other* reload trigger (an ansible
+	# handler, a cron, an operator) to take every vhost on the box down.
+	backup=""
+	if [[ -f "$CONF" ]]; then
+		backup=$(mktemp "${CONF}.bak.XXXXXX")
+		cat "$CONF" > "$backup"
+	fi
+
+	mv -f "$tmp" "$CONF"
+	ensure_link
+
+	if apache2ctl configtest >/dev/null 2>&1; then
+		[[ -n "$backup" ]] && rm -f "$backup"
+		[[ "$RELOAD" == "1" ]] && systemctl reload apache2
+		return 0
+	fi
+
+	echo "pmpro-f2b-apache-deny: configtest failed, rolling back" >&2
+	apache2ctl configtest >&2 || true
+	if [[ -n "$backup" ]]; then
+		mv -f "$backup" "$CONF"
+	else
+		rm -f "$CONF"
+		[[ -L "$LINK" ]] && rm -f "$LINK"
+	fi
+	return 1
+}
+
+ensure_link() {
+	[[ -e "$LINK" ]] && return 0
+	ln -sf "../conf-available/$(basename "$CONF")" "$LINK"
+}
+
+# Rewrite the list through a filter, atomically.
+rewrite() {
+	local tmp
+	tmp=$(mktemp "${LIST}.XXXXXX")
+	"$@" < "$LIST" > "$tmp" || true
+	mv -f "$tmp" "$LIST"
+}
+
+main() {
+	touch "$LIST"
+
+	case "${1:-}" in
+		add)
+			local rec
+			printf -v rec '%s\t%s' "$2" "$3"
+			grep -qxF "$rec" "$LIST" || printf '%s\n' "$rec" >> "$LIST"
+			render
+			;;
+		del)
+			local rec
+			printf -v rec '%s\t%s' "$2" "$3"
+			rewrite grep -vxF "$rec"
+			render
+			;;
+		clear)
+			# Drop every record for one jail, leaving other jails' bans intact.
+			rewrite grep -vP "^$(printf '%s' "$2" | sed 's/[][\.*^$(){}?+|/]/\\&/g')\t"
+			render
+			;;
+		flush)
+			: > "$LIST"
+			render
+			;;
+		render)
+			render
+			;;
+		*)
+			echo "usage: $0 <add|del|clear> <jail> [ip] | <flush|render>" >&2
+			exit 2
+			;;
+	esac
+}
+
+mkdir -p "$(dirname "$LIST")" "$(dirname "$LOCK")"
+exec 9>"$LOCK"
+flock 9
+main "$@"
