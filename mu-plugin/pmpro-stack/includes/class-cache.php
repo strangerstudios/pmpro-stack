@@ -28,6 +28,9 @@ class PMPro_Stack_Cache {
 		$this->bootstrap_page_cache();
 
 		add_action( 'admin_init', array( $this, 'maybe_install_dropins' ) );
+
+		// Before PMPro's preheaders (`wp` priority 2), which can redirect and exit.
+		add_action( 'wp', array( $this, 'exclude_pmpro_pages_from_cache' ), 1 );
 	}
 
 	/**
@@ -64,6 +67,69 @@ class PMPro_Stack_Cache {
 
 		if ( file_exists( $surge ) ) {
 			require_once $surge;
+		}
+	}
+
+	/**
+	 * Keep PMPro's member and checkout pages out of the page cache.
+	 *
+	 * Checkout and confirmation carry nonces and per-visitor state, and the
+	 * account, billing, cancel, and invoice pages issue auth-dependent redirects
+	 * (logged-out account -> login). Caching either serves stale nonces or a
+	 * redirect loop.
+	 *
+	 * @link https://www.paidmembershipspro.com/documentation/advanced/caching/
+	 *
+	 * @return void
+	 */
+	public function exclude_pmpro_pages_from_cache() {
+		if ( is_admin() ) {
+			return;
+		}
+
+		$exclude = false;
+
+		if ( function_exists( 'pmpro_is_checkout' ) ) {
+			if ( pmpro_is_checkout() || pmpro_is_login_page() ) {
+				$exclude = true;
+			}
+
+			$member_page_ids = array();
+			foreach ( array( 'account', 'billing', 'cancel', 'invoice', 'confirmation' ) as $pmpro_page ) {
+				$page_id = (int) get_option( 'pmpro_' . $pmpro_page . '_page_id' );
+				if ( $page_id ) {
+					$member_page_ids[] = $page_id;
+				}
+			}
+			if ( $member_page_ids && is_page( $member_page_ids ) ) {
+				$exclude = true;
+			}
+		}
+
+		// Custom confirmation pages beyond the configured one.
+		$post = get_post();
+		if ( is_page() && $post && ( false !== strpos( $post->post_content, '[pmpro_confirmation' ) || has_block( 'pmpro/confirmation-page', $post ) ) ) {
+			$exclude = true;
+		}
+
+		/**
+		 * Filter whether the current request is excluded from the page cache.
+		 *
+		 * @param bool $exclude Whether to exclude the request.
+		 */
+		$exclude = apply_filters( 'pmpro_stack_exclude_from_cache', $exclude );
+
+		if ( ! $exclude ) {
+			return;
+		}
+
+		if ( ! defined( 'DONOTCACHEPAGE' ) ) {
+			define( 'DONOTCACHEPAGE', true );
+		}
+
+		// Carry the exclusion to Cloudflare if an edge cache rule caches HTML.
+		if ( ! headers_sent() ) {
+			header( 'Cache-Control: no-store, no-cache, must-revalidate, max-age=0' );
 		}
 	}
 

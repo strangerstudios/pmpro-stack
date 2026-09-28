@@ -22,9 +22,11 @@ A fresh Ubuntu 24.04 server configured with:
 - **TLS via Let's Encrypt** — `certbot --apache`, auto-renewing (optional)
 - **Hardening** — UFW (deny-all except SSH + Cloudflare), fail2ban with six
   WordPress jails (login-brute, comment-spam, webshell probes, secret-file
-  scans, 404 floods, admin recon), the 8G Firewall at the Apache layer,
+  scans, 404 floods, admin recon) whose bans are enforced at the Apache layer
+  so they hold behind Cloudflare, the 8G Firewall at the Apache layer,
   server-level deny rules for backup/dump/secret artifacts, a hardened
-  ImageMagick policy, and security-only unattended upgrades
+  ImageMagick policy, and security-only unattended upgrades with a post-apt
+  guard that restarts any stack service a package upgrade leaves dead
 - **Send-only outbound mail** — optional BYO-SMTP relay (SES, Mailgun, Postmark…)
 
 ## What it is *not*
@@ -118,7 +120,8 @@ Both phases are in place:
 
 - **Caching MU plugin** — a must-use plugin (`mu-plugin/`) that bundles Surge
   (page cache) + Redis Object Cache (object cache), installs both drop-ins,
-  regenerates PDF preview thumbnails via poppler (the hardened ImageMagick
+  keeps PMPro's checkout, confirmation, login, and member-account pages out of
+  the page cache (filter: `pmpro_stack_exclude_from_cache`), regenerates PDF preview thumbnails via poppler (the hardened ImageMagick
   policy denies the PDF coder), and adds a "PMPro Stack" admin page explaining
   the setup. `install-wp` deploys it and turns caching on automatically.
 

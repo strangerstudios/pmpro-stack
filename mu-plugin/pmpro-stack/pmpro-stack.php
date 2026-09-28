@@ -7,7 +7,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'PMPRO_STACK_VERSION', '1.1.0' );
+define( 'PMPRO_STACK_VERSION', '1.2.0' );
 define( 'PMPRO_STACK_DIR', __DIR__ );
 define( 'PMPRO_STACK_HOSTING_URL', 'https://www.paidmembershipspro.com/hosting/' );
 
