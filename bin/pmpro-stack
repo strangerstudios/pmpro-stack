@@ -393,10 +393,11 @@ cmd_create_droplet() {
 
 	info "Droplet created (ID: ${droplet_id}). Waiting for it to become active with a public IP..."
 
-	# Until bring-up succeeds, an interrupt destroys the droplet so a retry
+	# Until bring-up succeeds, an interrupt or hangup destroys the droplet so a retry
 	# never leaves the first one orphaned.
 	trap "rollback_droplet '${droplet_id}'; exit 130" INT
 	trap "rollback_droplet '${droplet_id}'; exit 143" TERM
+	trap "rollback_droplet '${droplet_id}'; exit 129" HUP
 
 	# DO can report active before the public IPv4 is attached, so wait for both.
 	# Transient API errors are retried; the wall-clock deadline and per-request
@@ -417,7 +418,7 @@ cmd_create_droplet() {
 		rollback_droplet "$droplet_id"
 		die "Could not get public IP for droplet ${droplet_id}"
 	fi
-	trap - INT TERM
+	trap - INT TERM HUP
 
 	ok "Droplet active: ${domain} → ${ip} (ID: ${droplet_id})"
 

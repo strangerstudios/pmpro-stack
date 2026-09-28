@@ -31,6 +31,28 @@ class PMPro_Stack_Cache {
 
 		// Before PMPro's preheaders (`wp` priority 2), which can redirect and exit.
 		add_action( 'wp', array( $this, 'exclude_pmpro_pages_from_cache' ), 1 );
+		add_action( 'init', array( $this, 'maybe_expire_page_cache_on_upgrade' ) );
+	}
+
+	/**
+	 * Expire the whole page cache once after a plugin update.
+	 *
+	 * Surge serves hits from advanced-cache.php before WordPress loads, so pages
+	 * cached under an older version (e.g. before an exclusion existed) would keep
+	 * serving until their TTL ran out.
+	 *
+	 * @return void
+	 */
+	public function maybe_expire_page_cache_on_upgrade() {
+		if ( get_option( 'pmpro_stack_version' ) === PMPRO_STACK_VERSION ) {
+			return;
+		}
+
+		if ( function_exists( 'Surge\\expire' ) ) {
+			\Surge\expire( '/' );
+		}
+
+		update_option( 'pmpro_stack_version', PMPRO_STACK_VERSION );
 	}
 
 	/**
