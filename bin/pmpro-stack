@@ -319,6 +319,22 @@ resolve_ssh_key_id() {
 }
 
 # ─── Commands ────────────────────────────────────────────────────────────────
+# Destroy a droplet create-droplet made but could not bring up. Checks the HTTP
+# status directly: do_api treats a transport failure or non-JSON 5xx as success.
+rollback_droplet() {
+	local id="$1" code
+	warn "Bring-up failed; destroying droplet ${id} so it is not left running (and billing)..."
+	code=$(curl --disable \
+		--config <(printf 'header = "Authorization: Bearer %s"\n' "$DO_API_TOKEN") \
+		-s -o /dev/null -w '%{http_code}' --connect-timeout 10 --max-time 30 \
+		-X DELETE "https://api.digitalocean.com/v2/droplets/${id}") || code="000"
+	if [[ "$code" == "204" || "$code" == "404" ]]; then
+		warn "Destroyed droplet ${id}."
+	else
+		warn "Could not destroy droplet ${id} (HTTP ${code}). Delete it in the DigitalOcean dashboard."
+	fi
+}
+
 cmd_create_droplet() {
 	local domain="" region="$DEFAULT_REGION" size="$DEFAULT_SIZE"
 	local ssh_key_id="" ssh_key_file="" backups=false
@@ -373,22 +389,35 @@ cmd_create_droplet() {
 
 	local droplet_id
 	droplet_id=$(echo "$response" | jq -r '.droplet.id')
-	[[ -n "$droplet_id" && "$droplet_id" != "null" ]] || die "Failed to create droplet. Response: $response"
+	[[ "$droplet_id" =~ ^[0-9]+$ ]] || die "Failed to create droplet. Response: $response"
 
-	info "Droplet created (ID: ${droplet_id}). Waiting for it to become active..."
+	info "Droplet created (ID: ${droplet_id}). Waiting for it to become active with a public IP..."
 
-	local status="new" ip="" attempts=0
-	while [[ "$status" != "active" && $attempts -lt 60 ]]; do
+	# Until bring-up succeeds, an interrupt destroys the droplet so a retry
+	# never leaves the first one orphaned.
+	trap "rollback_droplet '${droplet_id}'; exit 130" INT
+	trap "rollback_droplet '${droplet_id}'; exit 143" TERM
+
+	# DO can report active before the public IPv4 is attached, so wait for both.
+	# Transient API errors are retried; the wall-clock deadline and per-request
+	# timeouts keep the poll near 5 minutes.
+	local status="new" ip="" poll deadline=$((SECONDS + 300))
+	while [[ ( "$status" != "active" || -z "$ip" ) && $SECONDS -lt $deadline ]]; do
 		sleep 5
-		attempts=$((attempts + 1))
-		local poll
-		poll=$(do_api GET "/droplets/${droplet_id}")
-		status=$(echo "$poll" | jq -r '.droplet.status')
-		ip=$(echo "$poll" | jq -r '.droplet.networks.v4[] | select(.type == "public") | .ip_address' | head -1)
+		poll=$(do_api GET "/droplets/${droplet_id}" --connect-timeout 10 --max-time 20 2>/dev/null) || poll=""
+		status=$(echo "$poll" | jq -r '.droplet.status // "unknown"' 2>/dev/null) || status="unknown"
+		ip=$(echo "$poll" | jq -r '.droplet.networks.v4[]? | select(.type == "public") | .ip_address' 2>/dev/null | head -1) || ip=""
 	done
 
-	[[ "$status" == "active" ]] || die "Droplet not active after 5 minutes. Status: ${status}"
-	[[ -n "$ip" ]] || die "Could not get public IP for droplet ${droplet_id}"
+	if [[ "$status" != "active" ]]; then
+		rollback_droplet "$droplet_id"
+		die "Droplet not active after 5 minutes. Status: ${status}"
+	fi
+	if [[ -z "$ip" ]]; then
+		rollback_droplet "$droplet_id"
+		die "Could not get public IP for droplet ${droplet_id}"
+	fi
+	trap - INT TERM
 
 	ok "Droplet active: ${domain} → ${ip} (ID: ${droplet_id})"
 
