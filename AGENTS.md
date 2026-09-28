@@ -57,7 +57,10 @@ It runs all four steps in order and prints the site URL + admin credentials
 once at the end. Under the hood (and runnable individually if a step fails):
 
 1. **`create-droplet`** — boots a stock `ubuntu-24-04-x64` droplet (no golden
-   image). Imports the user's local SSH pubkey to DO if needed. Returns the IP.
+   image). Imports the user's local SSH pubkey to DO if needed. Waits (up to
+   ~5 min) for it to be active *with* a public IP and returns the IP. If it
+   never comes up, or the run is interrupted mid-wait, it destroys that new
+   droplet itself so a retry doesn't leave an orphan billing.
 2. **`setup-dns`** — upserts the domain A record in the user's own Cloudflare
    zone, **DNS-only (grey-cloud)** so the Let's Encrypt HTTP-01 challenge reaches
    the origin. `--cf-proxy` upserts it proxied (orange-cloud) instead. No `www`

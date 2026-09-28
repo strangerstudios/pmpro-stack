@@ -3,7 +3,9 @@
 #
 # Policy (see files/52unattended-upgrades-pmpro for the design rationale):
 # security pocket only, mysql-server blacklisted (patch MySQL in a
-# maintenance window), no automatic reboot.
+# maintenance window), no automatic reboot. A DPkg::Post-Invoke service guard
+# restarts any stack service a package postinst leaves dead, and an apache2
+# systemd drop-in self-heals Apache failures.
 
 - name: Install unattended-upgrades
   ansible.builtin.apt:
@@ -11,6 +13,19 @@
       - unattended-upgrades
       - update-notifier-common
     state: present
+  tags: apt-security
+
+# VM cruft that widens the update surface: fwupd (firmware updater, useless in
+# a VM) and open-vm-tools (VMware guest tools on KVM). Autoremove sweeps their
+# orphaned deps.
+- name: Purge fwupd and open-vm-tools
+  ansible.builtin.apt:
+    name:
+      - fwupd
+      - open-vm-tools
+    state: absent
+    purge: true
+    autoremove: true
   tags: apt-security
 
 - name: Deploy APT periodic config
@@ -29,6 +44,49 @@
     owner: root
     group: root
     mode: "0644"
+  tags: apt-security
+
+- name: Install pmpro-apt-service-guard (restart services a postinst left dead)
+  ansible.builtin.copy:
+    src: pmpro-apt-service-guard
+    dest: /usr/local/bin/pmpro-apt-service-guard
+    owner: root
+    group: root
+    mode: "0755"
+  tags: apt-security
+
+- name: Deploy the post-apt service guard hook
+  ansible.builtin.copy:
+    src: 99pmpro-service-guard
+    dest: /etc/apt/apt.conf.d/99pmpro-service-guard
+    owner: root
+    group: root
+    mode: "0644"
+  tags: apt-security
+
+- name: Create the apache2 systemd drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/apache2.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  tags: apt-security
+
+- name: Deploy the apache2 Restart=on-failure drop-in
+  ansible.builtin.copy:
+    src: apache2-restart-override.conf
+    dest: /etc/systemd/system/apache2.service.d/pmpro-restart.conf
+    owner: root
+    group: root
+    mode: "0644"
+  register: apt_security_apache_dropin
+  tags: apt-security
+
+- name: Reload systemd for the apache2 drop-in
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: apt_security_apache_dropin.changed
   tags: apt-security
 
 - name: Verify APT config parses with the new policy

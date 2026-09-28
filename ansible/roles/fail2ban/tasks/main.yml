@@ -10,6 +10,30 @@
   register: package_install
   tags: fail2ban
 
+# Behind Cloudflare, packet-level bans match the edge IP, never the attacker.
+# pmpro-apache-deny (referenced from jail.local) bans the real client at the
+# Apache layer; the helper renders the deny list into an Apache conf.
+# Deployed before jail.local, which references the action.
+- name: Install the Apache deny-list helper
+  ansible.builtin.copy:
+    src: bin/pmpro-f2b-apache-deny
+    dest: /usr/local/bin/pmpro-f2b-apache-deny
+    owner: root
+    group: root
+    mode: "0755"
+  notify: service fail2ban restart
+  tags: fail2ban, fail2ban_config
+
+- name: Deploy the Apache deny fail2ban action
+  ansible.builtin.copy:
+    src: action.d/pmpro-apache-deny.conf
+    dest: /etc/fail2ban/action.d/pmpro-apache-deny.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: service fail2ban restart
+  tags: fail2ban, fail2ban_config
+
 - name: Copying Fail2ban Configuration File
   ansible.builtin.copy:
     src: jail.local

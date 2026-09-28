@@ -10,14 +10,14 @@ Run the whole thing, or target a slice with `--tags`.
 |------|--------------|
 | `swap` | 2 GB swapfile + low `vm.swappiness`, so a memory spike degrades instead of OOM-killing. |
 | `base` | apt metadata refresh, core packages (curl, zip, redis, certbot), the `pmpro` system user, the `/var/www/vhosts/staging/public` web root, a memory-capped Redis with an eviction policy, and a 90-day journald retention cap. |
-| `apt-security` | Security-only unattended upgrades: `-security` pocket daily, MySQL blacklisted (patch it in a maintenance window), no automatic reboot. |
+| `apt-security` | Security-only unattended upgrades: `-security` pocket daily, MySQL blacklisted (patch it in a maintenance window), no automatic reboot. A `DPkg::Post-Invoke` guard (`pmpro-apt-service-guard`) restarts any enabled-but-dead apache2 / mysql / redis-server / php-fpm after every apt run, and an apache2 drop-in sets `Restart=on-failure`. Purges fwupd and open-vm-tools. |
 | `postfix-relay` | **Optional.** Send-only outbound mail through your own SMTP relay. No-op unless `smtp_relayhost` is set. Pins `mydestination`/`myorigin` to localhost so the box never swallows mail to the site's own domain. |
 | `php` | PHP 8.3-FPM pool (user `pmpro`, unix socket), opcache, slow-log, an FPM-only 60s execution-time default, and a hardened ImageMagick policy (raster formats only; PDF previews rasterize via poppler). Tunables in `group_vars`. |
 | `apache` | Apache2 fronting PHP-FPM over the socket, `mod_remoteip` trusting Cloudflare ranges (so logs/fail2ban see the real client IP behind the proxy), directory indexing off, Ubuntu's default vhost disabled, Timeout/ProxyTimeout pinned to 300 to match FPM, and two drop-in protection configs (deny rules inherit into every vhost via `RewriteOptions InheritDownBefore` + the vhost's `RewriteEngine On`). |
 | `mysql` | MySQL bound to localhost, utf8mb4, InnoDB buffer pool sized for a membership-site working set (not a flat % of RAM — it shares the box with FPM). |
 | `wpcli` | WP-CLI binary + a sane `wp-cli.yml`. |
 | `ssl` | **Optional.** Deploys the site vhost, then `certbot --apache` issues a Let's Encrypt cert for `server_name` (plus `www` only when `include_www: true`). No-op unless `letsencrypt_email` is set. Idempotent (skips if a live cert exists). |
-| `fail2ban` | fail2ban + WordPress jails: login-brute (throttles repeated `wp-login.php` POSTs), comment-spam, webshell probes, `.env`/`.git`/secret scanning, 404 floods, and wp-admin/admin-ajax recon walks. |
+| `fail2ban` | fail2ban + WordPress jails: login-brute (throttles repeated failed `wp-login.php` POSTs), comment-spam, webshell probes, `.env`/`.git`/secret scanning, 404 floods, and wp-admin/admin-ajax recon walks. Behind Cloudflare the packet source is an edge IP, so HTTP jails also ban through `pmpro-apache-deny`, a reference-counted `Require not ip` list Apache evaluates after `mod_remoteip`. Filters read both `combined` and `vhost_combined` log lines; `usedns = no`. Offline tests in `roles/fail2ban/tests/`. |
 | `ufw` | Deny-all inbound except SSH and the Cloudflare ranges on 80/443. Set `restrict_http_to_cloudflare: false` (or `create --direct`) to open 80/443 to the world for non-proxied origins. |
 | `logrotate` | Rotates the PHP-FPM slow log. |
 | `8g-fw` | The 8G Firewall (perishablepress.com) at the Apache layer — blocks a large set of malicious request patterns before PHP runs. |
@@ -60,6 +60,6 @@ Pass `create --direct` to skip the flip and serve straight from the origin (the
 ## Requirements
 
 - A fresh **Ubuntu 24.04** target host with root SSH access.
-- Locally: `ansible` (core) and the `community.general` collection
+- Locally: `ansible` (core) and the `community.general` + `ansible.posix` collections
   (`ansible-galaxy collection install -r ansible/requirements.yml`) — used by the
-  `ufw` and `ssl` roles.
+  `ufw`, `ssl`, and `swap` roles.

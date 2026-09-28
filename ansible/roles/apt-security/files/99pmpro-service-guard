@@ -1,0 +1,5 @@
+// pmpro-stack: after every apt transaction, restart any stack service that a
+// postinst left enabled-but-dead (an apache2 postinst stop/start race can
+// leave Apache down until someone notices). Turns that class of failure from
+// an outage into a syslog line (tag pmpro-service-guard).
+DPkg::Post-Invoke { "[ -x /usr/local/bin/pmpro-apt-service-guard ] && /usr/local/bin/pmpro-apt-service-guard || true"; };

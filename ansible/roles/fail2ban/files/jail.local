@@ -7,7 +7,21 @@ maxretry = 15
 # their logpath directives inert. sshd overrides to systemd below (noble has
 # no auth.log without rsyslog).
 backend = auto
+# <HOST> may only ever be an address. With the default (warn) fail2ban resolves
+# a hostname a filter captured, and on a vhost_combined log line that hostname
+# is the VHOST, so the ban lands on the site's own Cloudflare addresses instead
+# of the attacker. The WordPress filters strip the vhost prefix (prefregex);
+# this makes a repeat impossible rather than unlikely.
+usedns = no
 banaction = iptables-multiport
+# Behind Cloudflare the packet source is a Cloudflare edge IP, so banaction
+# alone never matches the attacker. pmpro-apache-deny bans the real client at
+# the Apache layer, where mod_remoteip has already substituted
+# CF-Connecting-IP. Both run: banaction still covers direct-to-origin traffic.
+action = %(action_)s
+         pmpro-apache-deny
+# Add your own monitoring or office addresses here if a WordPress jail could
+# match them (a ban 403s the site to that address).
 ignoreip = 127.0.0.1/8 ::1
 
 [sshd]
@@ -15,15 +29,26 @@ enabled = true
 backend = systemd
 port = ssh
 maxretry = 5
+# SSH bans need no Apache rule; skip the reload the composite action triggers.
+action = %(action_)s
 
 [apache-auth]
 enabled = true
 port = http,https
 logpath = /var/log/apache2/*error.log
 maxretry = 5
+# pmpro-apache-deny bans by adding the client to a <Location "/"> deny, so every
+# request from an already-banned IP logs AH01630 "client denied by server
+# configuration", which this jail's stock failregex matches, re-arming the ban
+# on each retry (self-perpetuating ban). Ignore server-config denials here; the
+# WordPress access-log jails already catch sensitive-path probes, and apache-auth
+# still reacts to genuine HTTP auth failures.
+ignoreregex = client denied by server configuration
 
 # Vhost logs use <domain>_access.log / <domain>-access.log / access.log,
-# so all access-log jails glob *access.log (matches all three schemes).
+# so all access-log jails glob *access.log (matches all three schemes). The
+# glob also takes other_vhosts_access.log, which is vhost_combined (host:port
+# first); the WordPress filters' prefregex handles that shape.
 [apache-badbots]
 enabled = true
 port = http,https

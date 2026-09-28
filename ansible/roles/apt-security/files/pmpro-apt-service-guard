@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+#
+# pmpro-apt-service-guard: restart stack services an apt transaction left dead.
+#
+# Called by DPkg::Post-Invoke (/etc/apt/apt.conf.d/99pmpro-service-guard) after
+# every apt run. For each site-serving service that is enabled but
+# inactive, queue a restart and log it to syslog (tag pmpro-service-guard).
+# A service you disabled stays down (enabled-check); a clean
+# `systemctl stop` of an enabled service is intentionally overridden only
+# here, at apt time, where a dead enabled service means a postinst race, not
+# a deliberate choice. A unit already activating is left to finish.
+#
+# dpkg waits on this hook, so nothing here may block: restarts are queued
+# with --no-block and the outcome is polled by a detached transient unit
+# (`--watch`, via systemd-run) that logs "active after Ns" or "not active
+# after POLL_SECS". A slow MySQL recovery therefore never holds the apt
+# transaction; systemd keeps starting the unit regardless.
+# Idempotent and always exits 0: this hook must never break an apt transaction.
+set -u
+
+STACK=(apache2 mysql redis-server)
+POLL_SECS="${POLL_SECS:-60}"
+
+# Hook-side calls into the manager must be bounded too: --no-block skips the
+# start job but systemd-run still waits for PID 1's D-Bus reply.
+bounded() {
+	if command -v timeout >/dev/null 2>&1; then
+		timeout 10 "$@"
+	else
+		"$@"
+	fi
+}
+
+# --watch <unit>...: detached poll-and-log. Spawned by the hook path below.
+if [ "${1:-}" = "--watch" ]; then
+	shift
+	for svc in "$@"; do
+		waited=0
+		while [ "$waited" -lt "$POLL_SECS" ]; do
+			if systemctl is-active --quiet "$svc" 2>/dev/null; then
+				logger -t pmpro-service-guard "restarted ${svc}: enabled but inactive after an apt transaction (active after ${waited}s)"
+				continue 2
+			fi
+			sleep 2
+			waited=$((waited + 2))
+		done
+		logger -t pmpro-service-guard "restart of ${svc} queued but not active after ${POLL_SECS}s: check systemctl status ${svc}"
+	done
+	exit 0
+fi
+
+command -v systemctl >/dev/null 2>&1 || exit 0
+# Skip inside chroots/containers where systemd is not running (debootstrap,
+# image builds): is-system-running returns "offline" there.
+state="$(systemctl is-system-running 2>/dev/null || true)"
+[ "$state" = "offline" ] && exit 0
+
+# PHP-FPM units are discovered by pattern so a PHP version bump cannot
+# silently drop the service from the guard.
+services=("${STACK[@]}")
+while IFS= read -r unit; do
+	[ -n "$unit" ] && services+=("${unit%.service}")
+done < <(systemctl list-unit-files 'php*-fpm.service' --no-legend 2>/dev/null | awk '{print $1}')
+
+queued=()
+for svc in "${services[@]}"; do
+	systemctl is-enabled --quiet "$svc" 2>/dev/null || continue
+	case "$(systemctl show -p ActiveState --value "$svc" 2>/dev/null)" in
+		active|activating|reloading) continue ;;
+	esac
+	if ! systemctl --no-block restart "$svc" 2>/dev/null; then
+		logger -t pmpro-service-guard "FAILED to queue restart of ${svc}: enabled but inactive after an apt transaction"
+		continue
+	fi
+	logger -t pmpro-service-guard "restart of ${svc} queued: enabled but inactive after an apt transaction"
+	queued+=("$svc")
+done
+
+if [ "${#queued[@]}" -gt 0 ]; then
+	if ! bounded systemd-run --quiet --collect --no-block --unit "pmpro-service-guard-$$" \
+		/bin/bash "$0" --watch "${queued[@]}" 2>/dev/null; then
+		# No transient unit (odd container): still detach so dpkg is not held.
+		setsid /bin/bash "$0" --watch "${queued[@]}" >/dev/null 2>&1 </dev/null &
+	fi
+fi
+
+exit 0
