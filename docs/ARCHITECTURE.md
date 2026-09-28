@@ -60,6 +60,6 @@ Pass `create --direct` to skip the flip and serve straight from the origin (the
 ## Requirements
 
 - A fresh **Ubuntu 24.04** target host with root SSH access.
-- Locally: `ansible` (core) and the `community.general` collection
+- Locally: `ansible` (core) and the `community.general` + `ansible.posix` collections
   (`ansible-galaxy collection install -r ansible/requirements.yml`) — used by the
-  `ufw` and `ssl` roles.
+  `ufw`, `ssl`, and `swap` roles.

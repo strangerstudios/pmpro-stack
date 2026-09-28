@@ -41,7 +41,7 @@ and anything tied to private accounts or infrastructure. See
 - A **Cloudflare API token** for the zone you'll use (DNS edit) — for DNS and,
   optionally, proxying.
 - A **domain** you control, and an **email** for Let's Encrypt.
-- Locally: `ansible` (core) + the `community.general` collection, plus `curl`,
+- Locally: `ansible` (core) + the `community.general` and `ansible.posix` collections, plus `curl`,
   `jq`, `openssl`, and an SSH client. Install Ansible with
   `pipx install --include-deps ansible` (recommended), or
   `pip3 install ansible --break-system-packages` on PEP-668 hosts (Ubuntu 24.04,
