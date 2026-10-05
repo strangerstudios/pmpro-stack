@@ -133,9 +133,9 @@ resolve_ref() {
 
 install_stack() {
 	local ref="$1"
-	local tmp
-	tmp="$(mktemp -d)"
-	trap 'rm -rf "$tmp"' EXIT
+	TMP_DIR="$(mktemp -d)"
+	trap 'rm -rf "${TMP_DIR:-}"' EXIT
+	local tmp="$TMP_DIR"
 
 	info "Downloading pmpro-stack ${ref}"
 	curl -fsSL "https://github.com/${REPO}/archive/${ref}.tar.gz" -o "$tmp/src.tar.gz" \

@@ -1088,8 +1088,9 @@ cmd_version() {
 }
 
 latest_release_tag() {
-	curl -fsSL "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" 2>/dev/null \
-		| jq -r '.tag_name // empty'
+	local body
+	body="$(curl -fsSL "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" 2>/dev/null)" || return 0
+	jq -r '.tag_name // empty' <<<"$body" 2>/dev/null || true
 }
 
 cmd_update() {
@@ -1132,10 +1133,9 @@ cmd_update() {
 	fi
 
 	info "Updating pmpro-stack ${current} → ${latest}"
-	local tmp
-	tmp="$(mktemp -d)"
-	# shellcheck disable=SC2064
-	trap "rm -rf '$tmp'" EXIT
+	UPDATE_TMP="$(mktemp -d)"
+	trap 'rm -rf "${UPDATE_TMP:-}"' EXIT
+	local tmp="$UPDATE_TMP"
 	curl -fsSL "https://github.com/${GITHUB_REPO}/archive/${latest}.tar.gz" -o "$tmp/src.tar.gz" \
 		|| die "Download failed for ${latest}."
 	mkdir -p "$tmp/src"
