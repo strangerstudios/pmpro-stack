@@ -36,32 +36,58 @@ centralized monitoring, control-plane integration, managed operations tooling,
 and anything tied to private accounts or infrastructure. See
 [`docs/PROVENANCE.md`](docs/PROVENANCE.md) for exactly what was stripped and why.
 
-## Prerequisites
+## Install (one command)
 
-- A server provider account — a **DigitalOcean API token** (droplet read/write)
-  is the supported path; any Ubuntu 24.04 host works for the manual path.
-- A **Cloudflare API token** for the zone you'll use (DNS edit) — for DNS and,
-  optionally, proxying.
-- A **domain** you control, and an **email** for Let's Encrypt.
-- Locally: `ansible` (core) + the `community.general` and `ansible.posix` collections, plus `curl`,
-  `jq`, `openssl`, and an SSH client. Install Ansible with
-  `pipx install --include-deps ansible` (recommended), or
-  `pip3 install ansible --break-system-packages` on PEP-668 hosts (Ubuntu 24.04,
-  Debian 12+), or `sudo apt-get install -y ansible`. Then install collection deps:
-  `ansible-galaxy collection install -r ansible/requirements.yml`. The CLI checks
-  for every required command up front and prints the install line for anything missing.
+macOS, Linux, or Windows via WSL:
+
+```bash
+curl -fsSL https://github.com/strangerstudios/pmpro-stack/releases/latest/download/install.sh | bash
+```
+
+Windows (PowerShell) — sets up WSL if needed, then runs the same installer inside it:
+
+```powershell
+irm https://github.com/strangerstudios/pmpro-stack/releases/latest/download/install.ps1 | iex
+```
+
+The installer puts the latest release in `~/.pmpro-stack`, links `pmpro-stack`
+into `~/.local/bin`, installs the tools it needs (`curl`, `jq`, `openssl`, `ssh`,
+`git`, and Ansible via `pipx`, plus the `community.general` and `ansible.posix`
+collections), and writes a token template to `~/.pmpro-stack.env`. Later,
+`pmpro-stack update` pulls the newest release. The installer scripts live in this
+repo (`install.sh`, `install.ps1`) and are attached to every release.
+
+## Get your API tokens
+
+You need two tokens. Put them in `~/.pmpro-stack.env` (the installer created it;
+`pmpro-stack` reads it automatically — nothing to export):
+
+```bash
+DO_API_TOKEN=dop_v1_...
+CF_API_TOKEN=...
+```
+
+Both dashboards change layout now and then, but the path is roughly:
+
+- **DigitalOcean** — [cloud.digitalocean.com/account/api/tokens](https://cloud.digitalocean.com/account/api/tokens)
+  → *Generate New Token* → give it a name → **Full Access** (or Custom Scopes with
+  `droplet` and `ssh_key` read + write) → *Generate Token*. Copy it right away —
+  DigitalOcean shows it only once.
+- **Cloudflare** — [dash.cloudflare.com/profile/api-tokens](https://dash.cloudflare.com/profile/api-tokens)
+  → *Create Token* → use the **Edit zone DNS** template → under *Zone Resources*
+  pick the zone your site's domain lives in → *Continue to summary* → *Create
+  Token* → copy it.
+
+You also need a **domain** whose DNS is on Cloudflare, and an **email** for
+Let's Encrypt.
 
 ## Quickstart (one command)
 
-`bin/pmpro-stack` does the whole thing — creates the droplet, sets DNS, runs the
-playbook (incl. TLS), and installs WordPress + PMPro:
+`pmpro-stack create` does the whole thing — creates the droplet, sets DNS, runs
+the playbook (incl. TLS), and installs WordPress + PMPro:
 
 ```bash
-# Tokens: export them, or put them in ~/.pmpro-stack.env (KEY=value lines).
-export DO_API_TOKEN=...      # DigitalOcean (droplet read/write)
-export CF_API_TOKEN=...      # Cloudflare (DNS edit on your zone)
-
-bin/pmpro-stack create \
+pmpro-stack create \
   --domain members.example.com \
   --le-email you@example.com
 ```
@@ -82,14 +108,24 @@ default — pass `--www` for an apex domain where you want one.
 > localhost but be unreachable to the public.
 
 Each step is also a standalone subcommand — `create-droplet`, `setup-dns`,
-`configure`, `install-wp`, `status`. See `bin/pmpro-stack --help`.
+`configure`, `install-wp`, `status`. See `pmpro-stack --help`.
+
+## Updating
+
+```bash
+pmpro-stack update          # install the latest GitHub release
+pmpro-stack update --check  # just report whether one is available
+pmpro-stack version
+```
+
+In a git checkout of this repo, `update` does a fast-forward `git pull` instead.
 
 ## Quickstart (agent path)
 
-Open this repo in Claude Code (or any agent that reads `AGENTS.md`) and tell it
-your domain. The agent follows [`AGENTS.md`](AGENTS.md): it collects your DO and
-Cloudflare tokens and drives `bin/pmpro-stack` to provision the site. Tokens
-stay in your environment — never commit them.
+Point Claude Code (or any agent that reads `AGENTS.md`) at this repo or at the
+install above, and tell it your domain. The agent follows [`AGENTS.md`](AGENTS.md):
+it has you fill in `~/.pmpro-stack.env` and drives `pmpro-stack` to provision the
+site. Tokens stay in that file — never commit them.
 
 ## Quickstart (Ansible only)
 
@@ -106,7 +142,7 @@ DNS must point `server_name` (plus `www.` only if you set `include_www: true`)
 at the host with ports 80/443 reachable before TLS issuance succeeds. Leave
 `letsencrypt_email` empty to skip
 TLS and serve HTTP-only while you sort DNS. (This configures the server stack;
-install WordPress afterward with `bin/pmpro-stack install-wp --ip <ip> --domain <d>`.)
+install WordPress afterward with `pmpro-stack install-wp --ip <ip> --domain <d>`.)
 
 ## Status
 

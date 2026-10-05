@@ -17,6 +17,7 @@
 #                       write wp-config.php, run `wp core install`, install wp-cron.
 #
 # Subcommands can also be run individually (see `pmpro-stack --help`).
+# `pmpro-stack update` pulls the latest GitHub release into the install dir.
 #
 # Requires: curl, jq, ssh, scp, openssl (always); ansible-playbook (for
 # `configure`/`create`); dig (best-effort DNS wait in `create`).
@@ -28,8 +29,12 @@
 set -euo pipefail
 
 # ─── Script / repo location ──────────────────────────────────────────────────
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SELF="${BASH_SOURCE[0]}"
+SELF="$(readlink -f "$SELF" 2>/dev/null || python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]))' "$SELF" 2>/dev/null || echo "$SELF")"
+REPO_ROOT="$(cd "$(dirname "$SELF")/.." && pwd)"
 ANSIBLE_DIR="$REPO_ROOT/ansible"
+VERSION="1.0.0"
+GITHUB_REPO="strangerstudios/pmpro-stack"
 
 # ─── Defaults ────────────────────────────────────────────────────────────────
 DEFAULT_REGION="nyc3"
@@ -60,6 +65,8 @@ require_cmds() {
 	done
 	if [[ ${#missing[@]} -gt 0 ]]; then
 		echo "ERROR: Missing required command(s): ${missing[*]}" >&2
+		echo "" >&2
+		echo "  The installer sets all of these up: see README.md (Install)." >&2
 		echo "" >&2
 		for c in "${missing[@]}"; do
 			case "$c" in
@@ -1069,6 +1076,87 @@ cmd_status() {
 }
 
 # ─── Usage ───────────────────────────────────────────────────────────────────
+# ─── version / update ──────────────────────────────────────────────────────────
+cmd_version() {
+	local ref=""
+	[[ -f "$REPO_ROOT/.installed-ref" ]] && ref="$(<"$REPO_ROOT/.installed-ref")"
+	if [[ -n "$ref" && "$ref" != "v${VERSION}" ]]; then
+		echo "pmpro-stack ${VERSION} (installed ref: ${ref})"
+	else
+		echo "pmpro-stack ${VERSION}"
+	fi
+}
+
+latest_release_tag() {
+	curl -fsSL "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" 2>/dev/null \
+		| jq -r '.tag_name // empty'
+}
+
+cmd_update() {
+	local force=0 check=0
+	while [[ $# -gt 0 ]]; do
+		case "$1" in
+			--force) force=1 ;;
+			--check) check=1 ;;
+			*) die "Unknown option for update: $1" ;;
+		esac
+		shift
+	done
+	require_cmds curl jq tar
+
+	# Git checkout (developer install): just fast-forward.
+	if [[ -d "$REPO_ROOT/.git" ]] && command -v git >/dev/null 2>&1; then
+		info "Git checkout detected at ${REPO_ROOT} — pulling."
+		[[ "$check" -eq 1 ]] && { git -C "$REPO_ROOT" fetch --quiet && git -C "$REPO_ROOT" status -sb | head -1; return 0; }
+		git -C "$REPO_ROOT" pull --ff-only || die "git pull failed — resolve local changes and retry."
+		command -v ansible-galaxy >/dev/null 2>&1 \
+			&& ansible-galaxy collection install -r "$ANSIBLE_DIR/requirements.yml" >/dev/null 2>&1 || true
+		ok "Updated: $("$REPO_ROOT/bin/pmpro-stack" version)"
+		return 0
+	fi
+
+	local latest
+	latest="$(latest_release_tag)"
+	[[ -n "$latest" ]] || die "Could not fetch the latest release from GitHub (${GITHUB_REPO})."
+	local current="v${VERSION}"
+	[[ -f "$REPO_ROOT/.installed-ref" ]] && current="$(<"$REPO_ROOT/.installed-ref")"
+
+	if [[ "$check" -eq 1 ]]; then
+		if [[ "$latest" == "$current" ]]; then echo "pmpro-stack ${current} is up to date."
+		else echo "Update available: ${current} → ${latest}  (run: pmpro-stack update)"; fi
+		return 0
+	fi
+	if [[ "$latest" == "$current" && "$force" -eq 0 ]]; then
+		ok "pmpro-stack ${current} is already the latest release."
+		return 0
+	fi
+
+	info "Updating pmpro-stack ${current} → ${latest}"
+	local tmp
+	tmp="$(mktemp -d)"
+	# shellcheck disable=SC2064
+	trap "rm -rf '$tmp'" EXIT
+	curl -fsSL "https://github.com/${GITHUB_REPO}/archive/${latest}.tar.gz" -o "$tmp/src.tar.gz" \
+		|| die "Download failed for ${latest}."
+	mkdir -p "$tmp/src"
+	tar -xzf "$tmp/src.tar.gz" -C "$tmp/src" --strip-components=1
+	[[ -x "$tmp/src/bin/pmpro-stack" ]] || die "Downloaded archive is missing bin/pmpro-stack."
+
+	# Swap directories whole so a failed update never leaves a half-written install.
+	rm -rf "${REPO_ROOT}.old"
+	mv "$REPO_ROOT" "${REPO_ROOT}.old"
+	if ! mv "$tmp/src" "$REPO_ROOT"; then
+		mv "${REPO_ROOT}.old" "$REPO_ROOT"
+		die "Could not move the new version into place; previous install restored."
+	fi
+	rm -rf "${REPO_ROOT}.old"
+	echo "$latest" > "$REPO_ROOT/.installed-ref"
+
+	command -v ansible-galaxy >/dev/null 2>&1 \
+		&& ansible-galaxy collection install -r "$ANSIBLE_DIR/requirements.yml" >/dev/null 2>&1 || true
+	ok "Updated: $("$REPO_ROOT/bin/pmpro-stack" version)"
+}
+
 usage() {
 	cat <<-'EOF'
 	pmpro-stack — provision a hardened WordPress + Paid Memberships Pro server
@@ -1083,11 +1171,13 @@ usage() {
 	  configure        Run the Ansible playbook (../ansible) incl. certbot TLS
 	  install-wp       Install WordPress + PMPro on an already-configured server
 	  status           Report droplet status + SSH + HTTPS reachability
+	  update           Update to the latest GitHub release (--check to only look)
+	  version          Print the installed version
 
 	Environment:
 	  DO_API_TOKEN     DigitalOcean API token (required)
 	  CF_API_TOKEN     Cloudflare API token  (required)
-	  Both may be exported, or placed (KEY=value) in ~/.pmpro-stack.env.
+	  Put them (KEY=value) in ~/.pmpro-stack.env — the installer writes a template.
 
 	create / create-droplet options:
 	  --domain <d>             Site domain, e.g. members.example.com (required)
@@ -1149,6 +1239,7 @@ main() {
 
 	case "$1" in
 		--help|-h|help) usage ;;
+		--version|-V) cmd_version; exit 0 ;;
 	esac
 
 	local cmd="$1"
@@ -1161,6 +1252,8 @@ main() {
 		configure)       cmd_configure "$@" ;;
 		install-wp)      cmd_install_wp "$@" ;;
 		status)          cmd_status "$@" ;;
+		update|self-update) cmd_update "$@" ;;
+		version)         cmd_version ;;
 		*) die "Unknown command: $cmd. Run 'pmpro-stack --help' for usage." ;;
 	esac
 }

@@ -10,10 +10,23 @@ Redis + PHP-FPM stack ready for WordPress + Paid Memberships Pro. The server
 configuration lives in `ansible/` (a playbook + roles). See `README.md` for the
 feature list and `docs/ARCHITECTURE.md` for per-role detail.
 
-## The tool — `bin/pmpro-stack`
+## Installing the tool
 
-A single CLI with subcommands drives everything. Run `bin/pmpro-stack --help`
-first to see the current surface; do not assume flags that `--help` doesn't list.
+If `pmpro-stack` is not on the user's PATH and this is not a git checkout, run the
+installer (macOS / Linux / WSL) — it installs Ansible and every other dependency:
+
+```bash
+curl -fsSL https://github.com/strangerstudios/pmpro-stack/releases/latest/download/install.sh | bash
+```
+
+On native Windows, pmpro-stack runs inside WSL; `install.ps1` (same URL path)
+sets that up. Keep an existing install current with `pmpro-stack update`.
+
+## The tool — `pmpro-stack`
+
+A single CLI with subcommands drives everything (`bin/pmpro-stack` in a checkout,
+`pmpro-stack` on PATH after the installer). Run `pmpro-stack --help` first to see
+the current surface; do not assume flags that `--help` doesn't list.
 
 - `create` — full flow (create-droplet → setup-dns → configure → install-wp)
 - `create-droplet` — boot a stock `ubuntu-24-04-x64` droplet on DigitalOcean
@@ -21,15 +34,18 @@ first to see the current surface; do not assume flags that `--help` doesn't list
 - `configure` — run the bundled Ansible playbook (`ansible/site.yml`) incl. certbot TLS
 - `install-wp` — DB + WordPress + Paid Memberships Pro into the configured server
 - `status` — droplet + SSH + HTTPS reachability
+- `update` / `version` — update to the latest GitHub release / print the version
 
-The one-shot path is `bin/pmpro-stack create --domain <d> --le-email <e>`. Prefer
+The one-shot path is `pmpro-stack create --domain <d> --le-email <e>`. Prefer
 it unless the user wants to run a single step.
 
 ## Secrets — handle carefully
 
 - The user supplies a **DigitalOcean API token** and a **Cloudflare API token**.
-  Read them from the environment (`DO_API_TOKEN`, `CF_API_TOKEN`) or a
-  host-local `~/.pmpro-stack.env` the user creates.
+  The tool reads them from `~/.pmpro-stack.env` (`DO_API_TOKEN=`, `CF_API_TOKEN=`;
+  the installer writes the template) or from the environment. Have the user paste
+  tokens into that file themselves — do not ask them to paste tokens into the chat.
+  README.md ("Get your API tokens") has the dashboard steps if they need them.
 - **Never** write tokens into the repo, commit them, echo them on a command line
   (shell history), or paste them into logs. `.gitignore` blocks `*.env`, certs,
   and keys — keep it that way.
@@ -50,7 +66,7 @@ it unless the user wants to run a single step.
 The simplest path is one command:
 
 ```bash
-bin/pmpro-stack create --domain <domain> --le-email <email> [--region <r>] [--size <s>]
+pmpro-stack create --domain <domain> --le-email <email> [--region <r>] [--size <s>]
 ```
 
 It runs all four steps in order and prints the site URL + admin credentials
@@ -86,7 +102,7 @@ public access while the box itself serves fine on localhost. The `create`
 completion also prints DNS-propagation/cache-flush guidance and a caching note.
 
 If one step fails mid-`create`, re-run just that subcommand with the printed IP
-(e.g. `bin/pmpro-stack configure --ip <ip> --domain <d> --le-email <e>`).
+(e.g. `pmpro-stack configure --ip <ip> --domain <d> --le-email <e>`).
 
 ## Guardrails
 
